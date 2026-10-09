@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
+import { loadCatalog } from './catalog.ts';
 import { loadConfig } from './config.ts';
 import { connect, migrate } from './db.ts';
 
@@ -12,6 +13,9 @@ for (const name of await migrate(sql)) {
   console.log(`Applied migration ${name}`);
 }
 
-serve({ fetch: createApp({ sql }).fetch, port: config.port }, (info) => {
+const catalog = await loadCatalog(config.itemCatalogPath);
+console.log(`Item catalog: ${catalog.size} items`);
+
+serve({ fetch: createApp({ sql, catalog }).fetch, port: config.port }, (info) => {
   console.log(`Gourmet Street server listening on http://localhost:${info.port}`);
 });

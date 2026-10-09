@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
+import { parseCatalog, type Catalog } from '../src/catalog.ts';
 import { connect, migrate } from '../src/db.ts';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/gourmet_street_test';
@@ -12,7 +13,23 @@ const PASSWORD = 'correct horse battery';
 const NO_RATE_LIMIT = { limit: 1000, windowMs: 60_000 };
 
 const sql = connect(databaseUrl);
-const app = createApp({ sql, authRateLimit: NO_RATE_LIMIT });
+// A stand-in for data/restaurant.json, which is not in the repository.
+const CHAIR = 3040001;
+const FANCY_LAMP = 3020099;
+const AWARD = 3100000;
+const CASH_ONLY = 3020098;
+const catalog: Catalog = parseCatalog([
+  { name: 'Chair', items: [{ id: String(CHAIR), cost: '200', cash: '0' }] },
+  {
+    name: 'Decoration',
+    items: [
+      { id: String(FANCY_LAMP), cost: '600', cash: '0' },
+      { id: String(CASH_ONLY), cost: '600', cash: '5' },
+    ],
+  },
+  { name: 'Award', items: [{ id: String(AWARD), cost: '0', cash: '0', invisible: true }] },
+]);
+const app = createApp({ sql, catalog, authRateLimit: NO_RATE_LIMIT });
 
 type CallOptions = { body?: unknown; rawBody?: string; token?: string };
 type ApiResponse = { status: number; body: { success: boolean; data: any; error: string | null } };
@@ -71,13 +88,16 @@ test('unknown routes return a 404 envelope', async () => {
   assert.deepEqual(response.body, { success: false, data: null, error: 'Not found' });
 });
 
-test('register creates an account with an empty profile', async () => {
+test('register creates an account with the starting restaurant', async () => {
   const token = await register();
 
   const profile = await call(app, 'GET', '/profile', { token });
 
   assert.equal(profile.status, 200);
-  assert.deepEqual(profile.body.data, { username: 'chef_anna', coins: 0, cash: 0, gourmetPoints: 0, level: 1, version: 0, data: {} });
+  const { data, ...rest } = profile.body.data;
+  assert.deepEqual(rest, { username: 'chef_anna', coins: 0, cash: 0, gourmetPoints: 0, level: 1, version: 0 });
+  assert.equal(data.layout.items.length, 16);
+  assert.equal(data.layout.floor, 3050000);
 });
 
 test('register never stores the password or the session token in plain text', async () => {
@@ -200,7 +220,7 @@ test('a save only touches the signed-in player', async () => {
   await call(app, 'PUT', '/profile', { token: anna, body: { version: 0, data: { floor: 'wood' } } });
   const profile = await call(app, 'GET', '/profile', { token: budi });
 
-  assert.deepEqual(profile.body.data.data, {});
+  assert.equal(profile.body.data.data.floor, undefined);
 });
 
 test('an oversized save is rejected', async () => {
@@ -337,8 +357,158 @@ test('earnings require a session', async () => {
   assert.equal(report.status, 401);
 });
 
+async function giveCoins(amount: number): Promise<void> {
+  await sql`update profiles set coins = ${amount}`;
+}
+
+async function inventory(token: string): Promise<Record<string, number>> {
+  const response = await call(app, 'GET', '/shop/inventory', { token });
+  assert.equal(response.status, 200);
+  return response.body.data.items;
+}
+
+test('a new player owns the furniture of the starting restaurant', async () => {
+  const token = await register();
+
+  const items = await inventory(token);
+
+  assert.equal(items[CHAIR], 3);
+  assert.equal(items[3050000], 1, 'the starting floor');
+  assert.equal(items[3060016], 1, 'the starting wallpaper');
+});
+
+test('an account from before the shop existed gets the starting restaurant on its next visit', async () => {
+  const token = await register();
+  await sql`delete from owned_items`;
+  await sql`update profiles set data = '{"note": "kept"}'`;
+
+  const profile = await call(app, 'GET', '/profile', { token });
+
+  assert.equal(profile.body.data.data.layout.items.length, 16);
+  assert.equal(profile.body.data.data.note, 'kept');
+  assert.equal((await inventory(token))[CHAIR], 3);
+});
+
+test('buying an item takes its price and adds it to the inventory', async () => {
+  const token = await register();
+  await giveCoins(1000);
+
+  const bought = await call(app, 'POST', '/shop/buy', { token, body: { itemId: FANCY_LAMP } });
+  const profile = await call(app, 'GET', '/profile', { token });
+
+  assert.equal(bought.status, 200);
+  assert.deepEqual(bought.body.data, { coins: 400, quantity: 1 });
+  assert.equal(profile.body.data.coins, 400);
+  assert.equal((await inventory(token))[FANCY_LAMP], 1);
+});
+
+test('buying is refused without enough coins and nothing changes', async () => {
+  const token = await register();
+  await giveCoins(599);
+
+  const bought = await call(app, 'POST', '/shop/buy', { token, body: { itemId: FANCY_LAMP } });
+
+  assert.equal(bought.status, 409);
+  assert.equal(bought.body.error, 'Not enough coins');
+  assert.equal((await inventory(token))[FANCY_LAMP], undefined);
+  assert.equal((await call(app, 'GET', '/profile', { token })).body.data.coins, 599);
+});
+
+test('only items sold for coins can be bought', async () => {
+  const token = await register();
+  await giveCoins(100000);
+
+  for (const itemId of [AWARD, CASH_ONLY, 999]) {
+    const bought = await call(app, 'POST', '/shop/buy', { token, body: { itemId } });
+    assert.equal(bought.status, 404, String(itemId));
+  }
+  assert.equal((await call(app, 'GET', '/profile', { token })).body.data.coins, 100000);
+});
+
+test('selling a spare item pays a third of its price', async () => {
+  const token = await register();
+  await giveCoins(200);
+  await call(app, 'POST', '/shop/buy', { token, body: { itemId: CHAIR } });
+
+  const sold = await call(app, 'POST', '/shop/sell', { token, body: { itemId: CHAIR } });
+
+  assert.equal(sold.status, 200);
+  assert.deepEqual(sold.body.data, { coins: 66, quantity: 3 });
+  assert.equal((await inventory(token))[CHAIR], 3);
+});
+
+test('the last copy of an item disappears from the inventory when sold', async () => {
+  const token = await register();
+  await giveCoins(600);
+  await call(app, 'POST', '/shop/buy', { token, body: { itemId: FANCY_LAMP } });
+
+  const sold = await call(app, 'POST', '/shop/sell', { token, body: { itemId: FANCY_LAMP } });
+
+  assert.deepEqual(sold.body.data, { coins: 200, quantity: 0 });
+  assert.equal((await inventory(token))[FANCY_LAMP], undefined);
+});
+
+test('an item that is not owned cannot be sold', async () => {
+  const token = await register();
+
+  const sold = await call(app, 'POST', '/shop/sell', { token, body: { itemId: FANCY_LAMP } });
+
+  assert.equal(sold.status, 409);
+  assert.equal((await call(app, 'GET', '/profile', { token })).body.data.coins, 0);
+});
+
+test('an item placed in the restaurant cannot be sold until it is put away', async () => {
+  const token = await register();
+
+  // All three starting chairs stand in the starting layout.
+  const sold = await call(app, 'POST', '/shop/sell', { token, body: { itemId: CHAIR } });
+
+  assert.equal(sold.status, 409);
+  assert.equal((await inventory(token))[CHAIR], 3);
+});
+
+test('a layout may only place items the player owns', async () => {
+  const token = await register();
+  const owned = { items: [{ id: CHAIR, x: 2, y: 3, rotation: 1 }], floor: 3050000, wallpaper: 3060016 };
+  const notOwned = { ...owned, items: [{ id: FANCY_LAMP, x: 2, y: 3, rotation: 0 }] };
+  const tooMany = { ...owned, items: [1, 2, 3, 4].map((x) => ({ id: CHAIR, x, y: 3, rotation: 0 })) };
+  const unownedFloor = { ...owned, floor: 3050001 };
+
+  const saved = await call(app, 'PUT', '/profile', { token, body: { version: 0, data: { layout: owned } } });
+  const refused = [];
+  for (const layout of [notOwned, tooMany, unownedFloor]) {
+    refused.push((await call(app, 'PUT', '/profile', { token, body: { version: 1, data: { layout } } })).status);
+  }
+
+  assert.equal(saved.status, 200);
+  assert.deepEqual(refused, [409, 409, 409]);
+  assert.deepEqual((await call(app, 'GET', '/profile', { token })).body.data.data.layout, owned);
+});
+
+test('a malformed layout is rejected', async () => {
+  const token = await register();
+  const item = { id: CHAIR, x: 2, y: 3, rotation: 0 };
+
+  for (const layout of [
+    { items: [{ ...item, x: -1 }], floor: 3050000, wallpaper: 3060016 },
+    { items: [{ ...item, rotation: 4 }], floor: 3050000, wallpaper: 3060016 },
+    { items: [{ ...item, extra: true }], floor: 3050000, wallpaper: 3060016 },
+    { items: 'chairs', floor: 3050000, wallpaper: 3060016 },
+    { items: [item] },
+  ]) {
+    const saved = await call(app, 'PUT', '/profile', { token, body: { version: 0, data: { layout } } });
+    assert.equal(saved.status, 400, JSON.stringify(layout));
+  }
+});
+
+test('the shop requires a session', async () => {
+  assert.equal((await call(app, 'GET', '/shop/inventory')).status, 401);
+  assert.equal((await call(app, 'POST', '/shop/buy', { body: { itemId: CHAIR } })).status, 401);
+  assert.equal((await call(app, 'POST', '/shop/sell', { body: { itemId: CHAIR } })).status, 401);
+});
+
 test('auth endpoints are rate limited', async () => {
-  const limited = createApp({ sql, authRateLimit: { limit: 2, windowMs: 60_000 } });
+  const limited = createApp({ sql, catalog, authRateLimit: { limit: 2, windowMs: 60_000 } });
   const attempt = () => call(limited, 'POST', '/auth/login', { body: { username: 'nobody_here', password: PASSWORD } });
 
   const statuses = [(await attempt()).status, (await attempt()).status, (await attempt()).status];
@@ -349,7 +519,7 @@ test('auth endpoints are rate limited', async () => {
 test('an unexpected failure returns 500 without leaking details', async () => {
   const closedSql = connect(databaseUrl);
   await closedSql.end();
-  const broken = createApp({ sql: closedSql, authRateLimit: NO_RATE_LIMIT });
+  const broken = createApp({ sql: closedSql, catalog, authRateLimit: NO_RATE_LIMIT });
 
   const response = await call(broken, 'GET', '/health');
 

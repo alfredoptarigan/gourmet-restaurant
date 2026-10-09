@@ -1,15 +1,17 @@
 import { Hono } from 'hono';
 import { authRoutes } from './auth.ts';
+import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
 import { ApiError, fail, ok } from './http.ts';
 import { profileRoutes } from './profile.ts';
 import { rateLimit } from './rate-limit.ts';
+import { shopRoutes } from './shop.ts';
 
 const DEFAULT_AUTH_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
-export type AppOptions = { sql: Sql; authRateLimit?: { limit: number; windowMs: number } };
+export type AppOptions = { sql: Sql; catalog: Catalog; authRateLimit?: { limit: number; windowMs: number } };
 
-export function createApp({ sql, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
+export function createApp({ sql, catalog, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -31,6 +33,7 @@ export function createApp({ sql, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppO
   app.use('/auth/*', rateLimit(authRateLimit.limit, authRateLimit.windowMs));
   app.route('/auth', authRoutes(sql));
   app.route('/profile', profileRoutes(sql));
+  app.route('/shop', shopRoutes(sql, catalog));
 
   return app;
 }

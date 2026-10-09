@@ -4,8 +4,9 @@ import type postgres from 'postgres';
 import { z } from 'zod';
 import { requireAuth, type AuthEnv } from './auth.ts';
 import type { Sql } from './db.ts';
-import { ApiError, fail, ok, parseBody } from './http.ts';
+import { ApiError, describeIssues, fail, ok, parseBody } from './http.ts';
 import { levelFor, rewardBetween } from './levels.ts';
+import { assertLayoutIsOwned, grantStarterItems, layoutSchema, STARTER_LAYOUT } from './shop.ts';
 
 const MAX_SAVE_BYTES = 256 * 1024;
 
@@ -65,7 +66,19 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
     if (!row) {
       throw new ApiError(404, 'Profile not found');
     }
-    return ok(c, toProfile(row));
+    if (row.data.layout !== undefined) {
+      return ok(c, toProfile(row));
+    }
+    // An account made before the shop existed has no layout and owns nothing. Give it the
+    // starting restaurant now, keeping whatever else its data holds.
+    const data = { ...row.data, layout: STARTER_LAYOUT };
+    await sql.begin(async (transaction) => {
+      await grantStarterItems(transaction, c.get('userId'));
+      await transaction`
+        update profiles set data = ${transaction.json(data as postgres.JSONValue)}
+        where user_id = ${c.get('userId')}`;
+    });
+    return ok(c, toProfile({ ...row, data }));
   });
 
   routes.put(
@@ -73,6 +86,15 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
     bodyLimit({ maxSize: MAX_SAVE_BYTES, onError: (c) => fail(c, 413, 'Profile is too large to save') }),
     async (c) => {
       const { version, data } = await parseBody(c, saveSchema);
+      // The rest of `data` is free-form, but a layout must be well-formed and use only
+      // furniture the player owns: that is what stops the shop from being skipped.
+      if (data.layout !== undefined) {
+        const layout = layoutSchema.safeParse(data.layout);
+        if (!layout.success) {
+          throw new ApiError(400, describeIssues(layout.error));
+        }
+        await assertLayoutIsOwned(sql, c.get('userId'), layout.data);
+      }
       // The version check makes a save from a stale copy (second device, retried request) fail
       // instead of silently overwriting newer data.
       const rows = await sql<{ version: number }[]>`

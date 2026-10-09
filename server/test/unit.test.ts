@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { hashPassword, verifyPassword } from '../src/auth.ts';
+import { parseCatalog } from '../src/catalog.ts';
 import { loadConfig } from '../src/config.ts';
 import { LEVELS, levelFor, rewardBetween } from '../src/levels.ts';
 import { createRateLimiter } from '../src/rate-limit.ts';
@@ -49,6 +50,7 @@ test('config reads the database url and defaults the port', () => {
   assert.deepEqual(loadConfig({ DATABASE_URL: 'postgres://localhost/gourmet_street' }), {
     databaseUrl: 'postgres://localhost/gourmet_street',
     port: 3000,
+    itemCatalogPath: '../data/restaurant.json',
   });
   assert.equal(loadConfig({ DATABASE_URL: 'postgres://localhost/x', PORT: '8080' }).port, 8080);
 });
@@ -80,4 +82,22 @@ test('the reward between two levels is the sum of every level entered', () => {
   assert.equal(rewardBetween(1, 2), 3500);
   assert.equal(rewardBetween(1, 4), 7000);
   assert.equal(rewardBetween(3, 4), 1000);
+});
+
+test('the catalog keeps prices for every item and marks what coins can buy', () => {
+  const catalog = parseCatalog([
+    { name: 'Chair', items: [{ id: '10', cost: '200', cash: '0' }, { id: '11', cost: '90', cash: '3' }] },
+    { name: 'Award', items: [{ id: '12', cost: '0', cash: '0' }, { id: '13', cost: '50', cash: '0', invisible: true }] },
+  ]);
+
+  assert.deepEqual(catalog.get(10), { cost: 200, purchasable: true });
+  assert.deepEqual(catalog.get(11), { cost: 90, purchasable: false });
+  assert.deepEqual(catalog.get(12), { cost: 0, purchasable: false });
+  assert.deepEqual(catalog.get(13), { cost: 50, purchasable: false });
+  assert.equal(catalog.get(14), undefined);
+});
+
+test('a catalog that is not a list of groups is rejected', () => {
+  assert.throws(() => parseCatalog({ name: 'Chair' }), /catalog/i);
+  assert.throws(() => parseCatalog([{ name: 'Chair', items: [{ id: 'abc', cost: '1' }] }]), /catalog/i);
 });
