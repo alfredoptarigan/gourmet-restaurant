@@ -202,6 +202,9 @@ func _ready() -> void:
 	build(_saved_layout())
 	_connect_hud()
 	start_play()
+	Tips.show_once(hud, "TutorialWelcome1")
+	if level >= RestaurantPlay.DRINK_START_LEVEL:
+		Tips.show_once(hud, "TutorialDrinks")
 	if Api.is_signed_in():
 		_look_for_food_king()
 		_take_perks(await Api.fetch_perks())
@@ -327,6 +330,8 @@ func _process(_delta: float) -> void:
 	if play == null:
 		return
 	overlays.sync()
+	if play.happy_customers > 0 and host.is_empty():
+		Tips.show_once(hud, "TutorialHappyCustomers")
 	hud.set_demand(play.demand, play.is_closed())
 
 

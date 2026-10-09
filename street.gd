@@ -52,6 +52,7 @@ func _ready() -> void:
 	add_child(_view)
 	_build_buttons()
 	Sounds.play_music(STREET_MUSIC)
+	Tips.show_once(_layer, "TutorialStreet1")
 	if Api.is_signed_in():
 		var saved := valid_building(Api.profile.get("data", {}).get(BUILDING_KEY))
 		if not saved.is_empty():

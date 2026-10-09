@@ -145,6 +145,7 @@ func open_mailbox() -> void:
 
 
 func choose_mail(letters: Array, quiz: Dictionary) -> ChoicePanel:
+	Tips.show_once(room.hud, "TutorialMailClient")
 	var rows: Array = []
 	for letter: Dictionary in letters:
 		rows.append({"label": describe_mail(letter), "options": MAIL_ACTIONS, "selected": 1})

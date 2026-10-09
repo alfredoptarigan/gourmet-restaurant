@@ -132,6 +132,7 @@ func _check_room() -> void:
 	_check_friends(room)
 	_check_cash(room)
 	_check_arcade(room)
+	_check_tips(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -846,6 +847,23 @@ func _check_arcade(room: RestaurantRoom) -> void:
 	room.arcade.queue_free()
 	room.remove_item(machine)
 	room.arcade_scores = {}
+
+
+func _check_tips(room: RestaurantRoom) -> void:
+	_expect(Tips.text("TutorialStreet1").begins_with("Welcome to the street"), "tips come from the original's English texts")
+	_expect(not Tips.text("TutorialRecipeMenu1").contains("<FONT") and Tips.text("TutorialQuiz1").find("10 seconds") == -1, "tips lose their markup and the quiz clock")
+	while is_instance_valid(Tips._open):
+		Tips._close(Tips._open)
+	_expect(Tips.has_seen("TutorialWelcome1") and Tips.has_seen("TutorialHappyCustomers"), "the welcome and the first happy customer have shown their tips")
+	var again := Tips.show_once(room.hud, "TutorialWelcome1")
+	_expect(again == null, "a tip shows only once")
+	var drinks := Tips.show_once(room.hud, "TutorialDrinks")
+	var waiting := Tips.show_once(room.hud, "TutorialTwoDishesPerCourse")
+	_expect(drinks != null and drinks.dialog_text.contains("drink dispenser"), "a tip not seen yet shows")
+	_expect(waiting == null and not Tips.has_seen("TutorialTwoDishesPerCourse"), "a second tip waits for the first to close")
+	Tips._close(drinks)
+	_expect(Tips.has_seen("TutorialTwoDishesPerCourse") and is_instance_valid(Tips._open), "and shows when it does")
+	Tips._close(Tips._open)
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

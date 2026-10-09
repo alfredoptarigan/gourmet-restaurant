@@ -44,6 +44,7 @@ func show_awards(progress: Dictionary) -> ChoicePanel:
 
 
 func ask_quiz(quiz: Dictionary) -> ChoicePanel:
+	Tips.show_once(room.hud, "TutorialQuiz1")
 	var reward: String = GameData.ingredient_items.get_item_by_id(int(quiz.get("rewardIngredientId", 0))).get("name", "an ingredient")
 	var panel: ChoicePanel = room.hud.open_choices("Daily quiz: answer right to win %s" % reward, [
 		{"label": quiz.get("question", ""), "options": quiz.get("choices", []), "selected": 0}])
@@ -201,6 +202,7 @@ func describe_recipe(recipe: Dictionary) -> String:
 ## or an ingredient to buy, or both.
 ## ponytail: drop-downs with no pictures; the original is a cookbook with a page per course.
 func choose_recipe() -> ChoicePanel:
+	Tips.show_once(room.hud, "TutorialRecipeMenu2")
 	var recipes: Array = room.learnable_recipes()
 	var market: Array = room.market_ingredients()
 	var panel: ChoicePanel = room.hud.open_choices("Recipes", [
@@ -282,6 +284,7 @@ func open_garden() -> void:
 
 
 func choose_garden(garden: Dictionary) -> ChoicePanel:
+	Tips.show_once(room.hud, "TutorialGardenPlot")
 	var plots := {}
 	for plot: Dictionary in garden.get("plots", []):
 		plots[int(plot.get("plot", -1))] = plot
