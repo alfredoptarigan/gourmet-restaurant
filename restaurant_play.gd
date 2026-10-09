@@ -55,7 +55,9 @@ const MAX_TRASH := 15
 const TRASH_SPRITES: Array[String] = ["BananaPeel", "PizzaSlice", "SodaCan", "ChickenLeg", "AppleCore"]
 const GOURMET_POINTS_PER_EXTRA := 1.0
 const SKIN_COLOURS: Array[Color] = [Color("ffece9"), Color("ffdbc0"), Color("e8b98f"), Color("a8703f")]
+const SKIN_COLOUR_NAMES: Array[String] = ["Light", "Fair", "Tan", "Dark"]
 const HAIR_COLOURS: Array[Color] = [Color("5a3a22"), Color("2b1b12"), Color("c9a25a"), Color("8a3b1f")]
+const HAIR_COLOUR_NAMES: Array[String] = ["Brown", "Black", "Blonde", "Red"]
 const LOOK_GROUPS: Array[String] = ["Hair", "Shirt", "Pants", "Eyes", "Mouth"]
 const CHEF_HAT := {"name": "Chef Hat", "group": "Hat"}
 
@@ -78,6 +80,8 @@ var empty_plates: Array[DishOrder] = []
 var waiting_chair_queue: Array[Customer] = []
 
 var _arrival_timer := 0.0
+## The job whose first employee is still to be dressed as the player, or -1.
+var _player_job := -1
 
 
 static func actor_direction_for(item_rotation: int) -> int:
@@ -110,22 +114,24 @@ func start(restaurant_room: RestaurantRoom, jobs: Array[int]) -> void:
 	var kitchens := room.items_of_type(KITCHEN_TYPE)
 	if kitchens.is_empty():
 		push_warning("RestaurantPlay: no kitchen, so nothing can be cooked")
+	# The first employee is the player, and wears the look the player chose.
+	_player_job = jobs[0] if not jobs.is_empty() and not room.look.is_empty() else -1
 	var taken_tiles: Array[Vector2i] = []
 	for index in mini(jobs.count(Job.CHEF), kitchens.size()):
 		var chef := Chef.new()
-		_add_actor(chef, [CHEF_HAT])
+		_add_staff(chef, Job.CHEF, [CHEF_HAT])
 		chef.start(self, kitchens[index])
 		chefs.append(chef)
 		taken_tiles.append(chef.tile)
 	for index in (jobs.count(Job.WAITER) if not kitchens.is_empty() else 0):
 		var waiter := Waiter.new()
-		_add_actor(waiter, [])
+		_add_staff(waiter, Job.WAITER, [])
 		waiter.start(self, kitchens[index % kitchens.size()], taken_tiles)
 		waiters.append(waiter)
 		taken_tiles.append(waiter.tile)
 	for index in jobs.count(Job.CLEANER):
 		var cleaner := Cleaner.new()
-		_add_actor(cleaner, [])
+		_add_staff(cleaner, Job.CLEANER, [])
 		cleaner.start(self, taken_tiles)
 		cleaners.append(cleaner)
 		taken_tiles.append(cleaner.tile)
@@ -350,18 +356,35 @@ func _add_actor(actor: RoomActor, extra_items: Array) -> void:
 	actor.avatar.setup(_random_look() + extra_items, _pick(SKIN_COLOURS), _pick(HAIR_COLOURS))
 
 
+func _add_staff(actor: RoomActor, job: int, extra_items: Array) -> void:
+	if job != _player_job:
+		_add_actor(actor, extra_items)
+		return
+	_player_job = -1
+	room.item_layer.add_child(actor)
+	var worn: Array = []
+	for group_name: String in room.look["items"]:
+		worn.append({"name": room.look["items"][group_name], "group": group_name})
+	actor.avatar.setup(worn + extra_items, SKIN_COLOURS[room.look["skin"]], HAIR_COLOURS[room.look["hair"]])
+
+
 func _pick(options: Array) -> Variant:
 	return options[rng.randi_range(0, options.size() - 1)]
 
 
-## One visible, wearable item from each clothing and face group.
+## The items of a clothing or face group that can be seen and worn.
+static func wearable(group_name: String) -> Array:
+	return GameData.avatar_items.get_items(group_name).filter(
+		func(item: Dictionary) -> bool: return item.get("invisible") != true)
+
+
+## One wearable item from each clothing and face group.
 func _random_look() -> Array:
 	var look: Array = []
 	for group_name in LOOK_GROUPS:
-		var wearable := GameData.avatar_items.get_items(group_name).filter(
-			func(item: Dictionary) -> bool: return item.get("invisible") != true)
-		if not wearable.is_empty():
-			look.append({"name": _pick(wearable)["name"], "group": group_name})
+		var choices := wearable(group_name)
+		if not choices.is_empty():
+			look.append({"name": _pick(choices)["name"], "group": group_name})
 	return look
 
 

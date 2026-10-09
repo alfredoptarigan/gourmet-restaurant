@@ -9,6 +9,7 @@ signal sign_out_pressed
 signal decorate_pressed
 signal menu_pressed
 signal staff_pressed
+signal avatar_pressed
 
 const MESSAGE_SECONDS := 4.0
 
@@ -21,6 +22,7 @@ const MESSAGE_SECONDS := 4.0
 @onready var decorate_button: Button = %Decorate
 @onready var menu_button: Button = %Menu
 @onready var staff_button: Button = %Staff
+@onready var avatar_button: Button = %Avatar
 
 var _message_time_left := 0.0
 var _choices: ChoicePanel
@@ -31,6 +33,7 @@ func _ready() -> void:
 	decorate_button.pressed.connect(func() -> void: decorate_pressed.emit())
 	menu_button.pressed.connect(func() -> void: menu_pressed.emit())
 	staff_button.pressed.connect(func() -> void: staff_pressed.emit())
+	avatar_button.pressed.connect(func() -> void: avatar_pressed.emit())
 	message_label.text = ""
 
 

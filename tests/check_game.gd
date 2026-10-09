@@ -117,6 +117,7 @@ func _check_room() -> void:
 	_check_menu_and_staff_choices(room)
 	_check_drinks(room)
 	_check_outdoor_area(room)
+	_check_avatar_choice(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -511,6 +512,22 @@ func _check_outdoor_area(room: RestaurantRoom) -> void:
 	room.set_outside_size(Vector2i.ZERO)
 	room.start_play()
 	_expect(room.floor_layer.get_child_count() == floor_tiles, "without the outdoor area only the room's floor is left")
+
+
+func _check_avatar_choice(room: RestaurantRoom) -> void:
+	_expect(RestaurantRoom.valid_look({"items": {"Hair": "No Such Hair"}, "skin": 0.0, "hair": 0.0}).is_empty(), "a saved look with unknown items is ignored")
+	_expect(RestaurantRoom.valid_look("bald").is_empty(), "a saved look of the wrong shape is ignored")
+	var panel := room.choose_avatar()
+	panel.select(0, 1)
+	panel.select(RestaurantPlay.LOOK_GROUPS.size(), 3)
+	panel.finish()
+	var second_hair: String = RestaurantPlay.wearable("Hair")[1]["name"]
+	_expect(room.look.get("items", {}).get("Hair") == second_hair and room.look.get("skin") == 3, "the avatar form sets the player's look, got %s" % room.look)
+	_expect(RestaurantRoom.valid_look(JSON.parse_string(JSON.stringify(room.look))) == room.look, "the look survives being saved and loaded")
+	_expect(room.play != null and room.play._player_job == -1 and room.play.chefs.size() == 1, "the restaurant reopens with the first employee dressed as the player")
+	room.stop_play()
+	room.look = {}
+	room.start_play()
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

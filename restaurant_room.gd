@@ -28,6 +28,7 @@ const CLEANER_NEEDED_SPRITE := "CleanerNeeded"
 ## Entries of the profile's saved data.
 const MENU_KEY := "menu"
 const JOBS_KEY := "jobs"
+const AVATAR_KEY := "avatar"
 ## The group of the outdoor area sizes the shop sells, and the type of outdoor-only items.
 const OUTSIDE_GROUP := "OutsideAreaSize"
 const OUTDOOR_TYPE := "outdoor"
@@ -84,6 +85,9 @@ var wallpaper_id := 0
 var outside_size := Vector2i.ZERO
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
 var jobs: Array[int] = []
+## How the player looks: {"items": {group: item name}, "skin": index, "hair": index} with the
+## indexes into RestaurantPlay.SKIN_COLOURS and HAIR_COLOURS. Empty until the player chooses.
+var look: Dictionary = {}
 ## The dish the player serves for each course: course name -> recipe id; see recipe_for().
 var menu: Dictionary = {}
 ## Trash on the floor: tile -> sprite name. It stays while the restaurant is redecorated.
@@ -112,6 +116,7 @@ func _ready() -> void:
 		var saved: Dictionary = Api.profile.get("data", {})
 		jobs = valid_jobs(saved.get(JOBS_KEY))
 		menu = valid_menu(saved.get(MENU_KEY))
+		look = valid_look(saved.get(AVATAR_KEY))
 		var inventory := await Api.fetch_inventory()
 		if inventory["ok"] and inventory["data"].get("items") is Dictionary:
 			var owned := {}
@@ -142,6 +147,26 @@ static func valid_jobs(saved: Variant) -> Array[int]:
 			return []
 		checked.append(int(entry))
 	return checked
+
+
+## A saved look as the game can use it: empty unless every part of it is something wearable.
+static func valid_look(saved: Variant) -> Dictionary:
+	if not saved is Dictionary or not saved.get("items") is Dictionary:
+		return {}
+	var items := {}
+	for group_name in RestaurantPlay.LOOK_GROUPS:
+		var item_name: Variant = saved["items"].get(group_name)
+		var known := RestaurantPlay.wearable(group_name).any(func(item: Dictionary) -> bool: return item.get("name") == item_name)
+		if not item_name is String or not known:
+			return {}
+		items[group_name] = item_name
+	var colours := {}
+	for part: Array in [["skin", RestaurantPlay.SKIN_COLOURS.size()], ["hair", RestaurantPlay.HAIR_COLOURS.size()]]:
+		var index: Variant = saved.get(part[0])
+		if not (index is float or index is int) or int(index) < 0 or int(index) >= part[1]:
+			return {}
+		colours[part[0]] = int(index)
+	return {"items": items, "skin": colours["skin"], "hair": colours["hair"]}
 
 
 ## A saved menu as the game can use it: only courses whose recipe really is of that course.
@@ -410,6 +435,7 @@ func _connect_hud() -> void:
 	hud.decorate_pressed.connect(_decorate)
 	hud.menu_pressed.connect(choose_menu)
 	hud.staff_pressed.connect(choose_staff)
+	hud.avatar_pressed.connect(choose_avatar)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -448,6 +474,7 @@ func _decorate() -> void:
 	stop_play()
 	hud.decorate_button.disabled = true
 	hud.staff_button.disabled = true
+	hud.avatar_button.disabled = true
 	editor = RestaurantEditor.new()
 	editor.name = "Editor"
 	add_child(editor)
@@ -461,6 +488,7 @@ func _on_editor_finished() -> void:
 	editor = null
 	hud.decorate_button.disabled = false
 	hud.staff_button.disabled = false
+	hud.avatar_button.disabled = false
 	start_play()
 
 
@@ -504,10 +532,41 @@ func choose_staff() -> ChoicePanel:
 ## New jobs take effect at once: the restaurant closes and reopens with the new staff.
 func _on_staff_chosen(selections: Array[int]) -> void:
 	jobs = selections
+	_reopen()
+	_save(JOBS_KEY, jobs)
+
+
+## ponytail: a form of drop-downs with no preview, and every item is free to wear. The
+## original has a dressing room that sells clothes (WorldCustomiseAvatar).
+func choose_avatar() -> ChoicePanel:
+	var rows: Array = []
+	for group_name in RestaurantPlay.LOOK_GROUPS:
+		var names: Array = RestaurantPlay.wearable(group_name).map(func(item: Dictionary) -> String: return item.get("name", ""))
+		rows.append({"label": group_name, "options": names, "selected": maxi(0, names.find(look.get("items", {}).get(group_name)))})
+	rows.append({"label": "Skin", "options": RestaurantPlay.SKIN_COLOUR_NAMES, "selected": look.get("skin", 0)})
+	rows.append({"label": "Hair colour", "options": RestaurantPlay.HAIR_COLOUR_NAMES, "selected": look.get("hair", 0)})
+	var panel: ChoicePanel = hud.open_choices("Avatar (worn by your first employee)", rows)
+	panel.chosen.connect(_on_avatar_chosen)
+	return panel
+
+
+func _on_avatar_chosen(selections: Array[int]) -> void:
+	var groups := RestaurantPlay.LOOK_GROUPS
+	var items := {}
+	for index in groups.size():
+		var choices := RestaurantPlay.wearable(groups[index])
+		if selections[index] < 0 or selections[index] >= choices.size():
+			return
+		items[groups[index]] = choices[selections[index]]["name"]
+	look = valid_look({"items": items, "skin": selections[groups.size()], "hair": selections[groups.size() + 1]})
+	_reopen()
+	_save(AVATAR_KEY, look)
+
+
+func _reopen() -> void:
 	if play != null:
 		stop_play()
 		start_play()
-	_save(JOBS_KEY, jobs)
 
 
 func _save(key: String, value: Variant) -> void:
