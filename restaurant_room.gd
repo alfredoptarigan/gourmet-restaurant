@@ -30,6 +30,8 @@ const MENU_KEY := "menu"
 const JOBS_KEY := "jobs"
 const AVATAR_KEY := "avatar"
 const ENERGY_KEY := "energy"
+## The perk group of the food that restores staff energy.
+const STAFF_FOOD_GROUP := "Employee"
 ## The group of the outdoor area sizes the shop sells, and the type of outdoor-only items.
 const OUTSIDE_GROUP := "OutsideAreaSize"
 const OUTDOOR_TYPE := "outdoor"
@@ -88,8 +90,8 @@ var outside_size := Vector2i.ZERO
 var jobs: Array[int] = []
 ## The working time each employee has left, in seconds (RestaurantPlay.MAX_WORK_TIME when
 ## rested). It is saved with the time of saving, so time away counts too.
-## ponytail: saved when the staff change, on decorating, and on signing out, not on quitting.
-## Food that restores energy (the Employee perks) is not sold yet; resting is the only cure.
+## ponytail: saved when the staff change or are fed, on decorating, and on signing out, not
+## on quitting.
 var energy: Array[float] = []
 ## How the player looks: {"items": {group: item name}, "skin": index, "hair": index} with the
 ## indexes into RestaurantPlay.SKIN_COLOURS and HAIR_COLOURS. Empty until the player chooses.
@@ -468,6 +470,7 @@ func _connect_hud() -> void:
 	hud.menu_pressed.connect(choose_menu)
 	hud.staff_pressed.connect(choose_staff)
 	hud.avatar_pressed.connect(choose_avatar)
+	hud.feed_pressed.connect(choose_food)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -596,6 +599,41 @@ func _on_avatar_chosen(selections: Array[int]) -> void:
 	look = valid_look({"items": items, "skin": selections[groups.size()], "hair": selections[groups.size() + 1]})
 	_reopen()
 	_save(AVATAR_KEY, look)
+
+
+## The food that restores staff energy, as the Employee perks describe it.
+func choose_food() -> ChoicePanel:
+	var staff: Array = []
+	for index in energy.size():
+		staff.append("Employee %d (%d%% energy)" % [index + 1, roundi(energy[index] / RestaurantPlay.MAX_WORK_TIME * 100.0)])
+	var foods: Array = GameData.perk_items.get_items(STAFF_FOOD_GROUP).map(
+		func(food: Dictionary) -> String: return "%s, %s coins: %s" % [food.get("name", ""), food.get("cost", "?"), food.get("text", "")])
+	var panel: ChoicePanel = hud.open_choices("Feed your staff", [
+		{"label": "Who", "options": staff, "selected": 0}, {"label": "Food", "options": foods, "selected": 0}])
+	panel.chosen.connect(_on_food_chosen)
+	return panel
+
+
+func _on_food_chosen(selections: Array[int]) -> void:
+	var foods := GameData.perk_items.get_items(STAFF_FOOD_GROUP)
+	if selections[0] < 0 or selections[0] >= energy.size() or selections[1] < 0 or selections[1] >= foods.size():
+		return
+	if not Api.is_signed_in():
+		hud.show_message("Sign in to buy food.")
+		return
+	var food: Dictionary = foods[selections[1]]
+	var result := await Api.use_item(int(food["id"]))
+	if not result["ok"]:
+		hud.show_message(result["error"])
+		return
+	set_confirmed_coins(int(result["data"].get("coins", 0)))
+	give_energy(selections[0], float(food.get("workTime", 0)))
+	_save_energy()
+
+
+## GameUserEmployee.addPerk: food tops an employee's energy up, to no more than full.
+func give_energy(employee: int, seconds: float) -> void:
+	energy[employee] = minf(energy[employee] + seconds, RestaurantPlay.MAX_WORK_TIME)
 
 
 func _reopen() -> void:

@@ -154,6 +154,24 @@ export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
     return ok(c, result);
   });
 
+  // Food for the staff is paid for and used up at once: nothing is added to the inventory.
+  // The energy it restores lives in the client's simulation, like the staff themselves.
+  routes.post('/use', async (c) => {
+    const { itemId } = await parseBody(c, itemSchema);
+    const item = priced(itemId);
+    if (!item.consumable) {
+      throw new ApiError(404, 'This item cannot be used');
+    }
+    const paid = await sql<{ coins: string }[]>`
+      update profiles set coins = coins - ${item.cost}
+      where user_id = ${c.get('userId')} and coins >= ${item.cost}
+      returning coins`;
+    if (paid.length === 0) {
+      throw new ApiError(409, 'Not enough coins');
+    }
+    return ok(c, { coins: Number(paid[0].coins) });
+  });
+
   routes.post('/sell', async (c) => {
     const { itemId } = await parseBody(c, itemSchema);
     const item = priced(itemId);

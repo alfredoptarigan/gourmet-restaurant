@@ -2,8 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { describeIssues } from './http.ts';
 
-export type CatalogItem = { cost: number; purchasable: boolean; unlockLevel: number };
-/** Item id -> its price in coins, whether the shop sells it for coins, and from which level. */
+export type CatalogItem = { cost: number; purchasable: boolean; unlockLevel: number; consumable: boolean };
+/**
+ * Item id -> its price in coins, whether the shop sells it for coins to keep, from which
+ * level, and whether it is instead used up on the spot (food that restores staff energy).
+ */
 export type Catalog = ReadonlyMap<number, CatalogItem>;
 
 // The shape tools/extract_data.py writes: groups of items whose numbers are strings.
@@ -16,6 +19,7 @@ const groupsSchema = z.array(
         cash: z.string().regex(/^\d+$/).optional(),
         invisible: z.boolean().optional(),
         unlockLevel: z.string().regex(/^\d+$/).optional(),
+        workTime: z.string().regex(/^\d+$/).optional(),
       }),
     ),
   }),
@@ -31,28 +35,42 @@ export function parseCatalog(groups: unknown): Catalog {
     for (const item of group.items) {
       const cost = Number(item.cost);
       // Awards cost nothing, some items are cash-only, and hidden items are never sold.
-      const purchasable = cost > 0 && Number(item.cash ?? '0') === 0 && item.invisible !== true;
-      catalog.set(Number(item.id), { cost, purchasable, unlockLevel: Number(item.unlockLevel ?? '0') });
+      const forCoins = cost > 0 && Number(item.cash ?? '0') === 0 && item.invisible !== true;
+      const consumable = forCoins && Number(item.workTime ?? '0') > 0;
+      catalog.set(Number(item.id), {
+        cost,
+        purchasable: forCoins && !consumable,
+        unlockLevel: Number(item.unlockLevel ?? '0'),
+        consumable,
+      });
     }
   }
   return catalog;
 }
 
 /**
- * Reads the catalog the game data was extracted to. The data is not distributed with the
- * repository, so a missing file is not fatal: the server runs with an empty catalog and
- * the shop reports that it is closed.
+ * Reads the catalog from the files the game data was extracted to (furniture, perks). The
+ * data is not distributed with the repository, so a missing file is not fatal: with none of
+ * them the server runs with an empty catalog and the shop reports that it is closed.
  */
-export async function loadCatalog(path: string): Promise<Catalog> {
-  let text: string;
-  try {
-    text = await readFile(path, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      console.warn(`No item catalog at ${path}: the shop is closed. Run tools/extract_data.py to create it.`);
-      return new Map();
+export async function loadCatalog(...paths: string[]): Promise<Catalog> {
+  const groups: unknown[] = [];
+  for (const path of paths) {
+    let text: string;
+    try {
+      text = await readFile(path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        console.warn(`No item catalog at ${path}. Run tools/extract_data.py to create it.`);
+        continue;
+      }
+      throw error;
     }
-    throw error;
+    const parsed: unknown = JSON.parse(text);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Item catalog ${path} is not a list of groups`);
+    }
+    groups.push(...parsed);
   }
-  return parseCatalog(JSON.parse(text));
+  return parseCatalog(groups);
 }

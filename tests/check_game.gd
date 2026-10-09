@@ -557,6 +557,14 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 	room.play.tick(10.0)
 	_expect(room.play.chefs.is_empty() and is_equal_approx(room.energy[0], 10.0 * RestaurantPlay.REST_GAIN), "a resting employee leaves the room and recovers three times as fast")
 
+	room.energy[1] = 0.0
+	room.give_energy(1, 3600.0)
+	room.give_energy(0, FULL * 2.0)
+	_expect(room.energy[1] == 3600.0 and room.energy[0] == FULL, "food restores energy, up to full")
+	var food_panel := room.choose_food()
+	food_panel.finish()
+	_expect(room.hud.message_label.text == "Sign in to buy food." and room.energy[1] == 3600.0, "offline there are no coins to buy food with")
+
 	room.stop_play()
 	room.jobs = []
 	room.energy = []

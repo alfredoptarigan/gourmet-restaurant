@@ -9,7 +9,10 @@ you earn, and holds your furniture.
 - **Decorate** moves furniture and buys more with your coins, including toilets, sinks,
   arcade machines, drink dispensers, and (from level 10) an outdoor area.
 - **Menu** sets the dish served for each course. Drinks join the menu at level 15.
-- **Staff** makes each employee a chef, a waiter, or a cleaner.
+- **Staff** makes each employee a chef, a waiter, or a cleaner, or lets them rest. Staff tire
+  as they work and slow down; without a rested chef and waiter the restaurant closes.
+- **Feed** buys food that restores an employee's energy.
+- **Avatar** sets how you look. Your first employee is you.
 - Click trash on the floor to pick it up, and a broken toilet or arcade machine to repair it.
   A cleaner does both for you.
 
@@ -70,7 +73,7 @@ npm test                             # needs the _test database
 
 Endpoints so far: `GET /health`, `GET /time`, `POST /auth/register`, `POST /auth/login`,
 `POST /auth/logout`, `GET /profile`, `PUT /profile`, `POST /profile/earnings`,
-`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`.
+`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`, `POST /shop/use`.
 
 Coins and cash are server-owned. A profile save can only change the `data` blob, and the
 client reports how many dishes and extras (arcade plays, trash picked up) were paid for,

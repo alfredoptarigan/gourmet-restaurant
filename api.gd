@@ -82,6 +82,11 @@ func sell(item_id: int) -> Dictionary:
 	return await _trade("/shop/sell", item_id)
 
 
+## Pays for something that is used up at once, like food for the staff.
+func use_item(item_id: int) -> Dictionary:
+	return await _trade("/shop/use", item_id)
+
+
 ## Stores the restaurant's layout. The server refuses furniture the player does not own.
 func save_layout(layout: Dictionary) -> Dictionary:
 	return await save_data(LAYOUT_KEY, layout)

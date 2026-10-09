@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { loadCatalog } from './catalog.ts';
@@ -13,7 +14,8 @@ for (const name of await migrate(sql)) {
   console.log(`Applied migration ${name}`);
 }
 
-const catalog = await loadCatalog(config.itemCatalogPath);
+// Perks (food for the staff) are extracted next to the furniture catalog.
+const catalog = await loadCatalog(config.itemCatalogPath, join(dirname(config.itemCatalogPath), 'perk.json'));
 console.log(`Item catalog: ${catalog.size} items`);
 
 serve({ fetch: createApp({ sql, catalog }).fetch, port: config.port }, (info) => {

@@ -90,10 +90,10 @@ test('the catalog keeps prices for every item and marks what coins can buy', () 
     { name: 'Award', items: [{ id: '12', cost: '0', cash: '0' }, { id: '13', cost: '50', cash: '0', invisible: true }] },
   ]);
 
-  assert.deepEqual(catalog.get(10), { cost: 200, purchasable: true, unlockLevel: 0 });
-  assert.deepEqual(catalog.get(11), { cost: 90, purchasable: false, unlockLevel: 0 });
-  assert.deepEqual(catalog.get(12), { cost: 0, purchasable: false, unlockLevel: 0 });
-  assert.deepEqual(catalog.get(13), { cost: 50, purchasable: false, unlockLevel: 0 });
+  assert.deepEqual(catalog.get(10), { cost: 200, purchasable: true, unlockLevel: 0, consumable: false });
+  assert.deepEqual(catalog.get(11), { cost: 90, purchasable: false, unlockLevel: 0, consumable: false });
+  assert.deepEqual(catalog.get(12), { cost: 0, purchasable: false, unlockLevel: 0, consumable: false });
+  assert.deepEqual(catalog.get(13), { cost: 50, purchasable: false, unlockLevel: 0, consumable: false });
   assert.equal(catalog.get(14), undefined);
 });
 

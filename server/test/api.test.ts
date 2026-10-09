@@ -19,8 +19,10 @@ const FANCY_LAMP = 3020099;
 const AWARD = 3100000;
 const CASH_ONLY = 3020098;
 const OUTDOOR_AREA = 3900000;
+const RUBY_JUICE = 6000000;
 const catalog: Catalog = parseCatalog([
   { items: [{ id: '3900000', cost: '2500', unlockLevel: '10' }] },
+  { items: [{ id: '6000000', cost: '80', workTime: '3600' }] },
   { name: 'Chair', items: [{ id: String(CHAIR), cost: '200', cash: '0' }] },
   {
     name: 'Decoration',
@@ -391,6 +393,23 @@ async function inventory(token: string): Promise<Record<string, number>> {
   assert.equal(response.status, 200);
   return response.body.data.items;
 }
+
+test('food for the staff is paid for and used up, never owned', async () => {
+  const token = await register();
+  await giveCoins(100);
+
+  const used = await call(app, 'POST', '/shop/use', { token, body: { itemId: RUBY_JUICE } });
+  const again = await call(app, 'POST', '/shop/use', { token, body: { itemId: RUBY_JUICE } });
+  const bought = await call(app, 'POST', '/shop/buy', { token, body: { itemId: RUBY_JUICE } });
+  const chair = await call(app, 'POST', '/shop/use', { token, body: { itemId: CHAIR } });
+
+  assert.equal(used.status, 200);
+  assert.deepEqual(used.body.data, { coins: 20 });
+  assert.equal(again.status, 409);
+  assert.equal(bought.status, 404);
+  assert.equal(chair.status, 404);
+  assert.equal((await inventory(token))[String(RUBY_JUICE)], undefined);
+});
 
 test('an item with an unlock level cannot be bought before that level', async () => {
   const token = await register();
