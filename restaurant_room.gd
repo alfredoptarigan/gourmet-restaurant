@@ -35,6 +35,10 @@ const STAFF_FOOD_GROUP := "Employee"
 ## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
 const RECIPE_LEVEL_NAMES: Array[String] = ["Simple", "Standard", "Classic", "Tasty", "Delicious", "Luxurious", "Gourmet", "Sensational", "Ultimate", "Royal"]
 const INGREDIENT_GROUP := "Ingredient"
+## GardenPlot.GROW_TIME and SEED_COST.
+const GROW_HOURS := 48
+const SEED_COST := 2000
+const GARDEN_LEAVE := "Leave it"
 ## Cash price -> coin price on the server's coin market (server/src/kitchen.ts).
 const INGREDIENT_COIN_PRICES := {4: 1000, 6: 1500, 8: 2000}
 ## The group of the outdoor area sizes the shop sells, and the type of outdoor-only items.
@@ -488,6 +492,7 @@ func _connect_hud() -> void:
 	hud.avatar_pressed.connect(choose_avatar)
 	hud.feed_pressed.connect(choose_food)
 	hud.recipes_pressed.connect(choose_recipe)
+	hud.garden_pressed.connect(open_garden)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -709,6 +714,71 @@ func _on_recipe_chosen(selections: Array[int], recipes: Array, market: Array) ->
 		if _sync != null:
 			_sync.set_confirmed_points(int(learned["data"].get("gourmetPoints", 0)))
 		hud.show_message("%s is now %s." % [recipe.get("name", ""), RECIPE_LEVEL_NAMES[int(learned["data"].get("level", 1)) - 1]])
+
+
+## What can be done with a plot, for the garden form: the first is always to leave it be.
+static func plot_actions(plot: Dictionary) -> Array[String]:
+	if plot.is_empty():
+		return [GARDEN_LEAVE, "Plant a seed (%d coins)" % SEED_COST]
+	if plot.get("ripe") == true:
+		return [GARDEN_LEAVE, "Harvest"]
+	return [GARDEN_LEAVE, "Water"]
+
+
+static func describe_plot(index: int, plot: Dictionary) -> String:
+	if plot.is_empty():
+		return "Plot %d: empty" % (index + 1)
+	var plant: String = GameData.ingredient_items.get_item_by_id(int(plot.get("ingredientId", 0))).get("name", "?")
+	return "Plot %d: %s, %d of %d wet hours, soil wet for %.1f h" % [
+		index + 1, plant, int(plot.get("grownSeconds", 0)) / 3600, GROW_HOURS, float(plot.get("wetSeconds", 0)) / 3600.0]
+
+
+## GardenPlot and GardenPlotActor as a form: one row per plot the level has.
+## ponytail: plots are rows in a form, not beds drawn beside the restaurant, and a friend
+## cannot water them yet.
+func open_garden() -> void:
+	if not Api.is_signed_in():
+		hud.show_message("Sign in to garden.")
+		return
+	var result := await Api.fetch_garden()
+	if not result["ok"]:
+		hud.show_message(result["error"])
+		return
+	var garden: Dictionary = result["data"]
+	if int(garden.get("plotCount", 0)) == 0:
+		hud.show_message("Your first garden plot opens at level 7.")
+		return
+	choose_garden(garden)
+
+
+func choose_garden(garden: Dictionary) -> ChoicePanel:
+	var plots := {}
+	for plot: Dictionary in garden.get("plots", []):
+		plots[int(plot.get("plot", -1))] = plot
+	var rows: Array = []
+	for index in int(garden.get("plotCount", 0)):
+		rows.append({"label": describe_plot(index, plots.get(index, {})), "options": plot_actions(plots.get(index, {})), "selected": 0})
+	var panel: ChoicePanel = hud.open_choices("Garden", rows)
+	panel.chosen.connect(func(selections: Array[int]) -> void: _on_garden_chosen(selections, plots))
+	return panel
+
+
+func _on_garden_chosen(selections: Array[int], plots: Dictionary) -> void:
+	for index in selections.size():
+		if selections[index] <= 0:
+			continue
+		var plot: Dictionary = plots.get(index, {})
+		var action := "plant" if plot.is_empty() else ("harvest" if plot.get("ripe") == true else "water")
+		var result := await Api.tend_plot(action, index)
+		if not result["ok"]:
+			hud.show_message(result["error"])
+			return
+		if result["data"].get("coins") is float:
+			set_confirmed_coins(int(result["data"]["coins"]))
+		if action == "harvest":
+			var harvested := int(result["data"].get("ingredientId", 0))
+			ingredients[harvested] = ingredients.get(harvested, 0) + 1
+			hud.show_message("You harvested %s." % GameData.ingredient_items.get_item_by_id(harvested).get("name", "?"))
 
 
 ## The food that restores staff energy, as the Employee perks describe it.

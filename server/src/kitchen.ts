@@ -37,6 +37,8 @@ export type Cookbook = {
   recipes: ReadonlyMap<number, { ingredients: ReadonlyMap<number, number>; learnable: boolean }>;
   /** Ingredient id -> its coin price, or null when the coin market does not sell it. */
   ingredients: ReadonlyMap<number, number | null>;
+  /** The ingredients that grow from a garden seed. */
+  plantable: ReadonlySet<number>;
 };
 
 const groupsSchema = z.array(z.object({ items: z.array(z.record(z.string(), z.unknown())) }));
@@ -45,6 +47,7 @@ const ingredientSchema = z.object({
   name: z.string(),
   cash: z.string().regex(/^\d+$/),
   noCoinShop: z.boolean().optional(),
+  plantClassName: z.string().optional(),
 });
 const recipeSchema = z.object({
   id: z.string().regex(/^\d+$/),
@@ -64,8 +67,12 @@ function items<T extends z.ZodType>(groups: unknown, schema: T, what: string): z
 export function parseCookbook(recipeGroups: unknown, ingredientGroups: unknown): Cookbook {
   const idByName = new Map<string, number>();
   const ingredients = new Map<number, number | null>();
+  const plantable = new Set<number>();
   for (const item of items(ingredientGroups, ingredientSchema, 'Ingredients')) {
     idByName.set(item.name, Number(item.id));
+    if (item.plantClassName) {
+      plantable.add(Number(item.id));
+    }
     ingredients.set(Number(item.id), item.noCoinShop ? null : (COINS_PER_CASH_PRICE.get(Number(item.cash)) ?? null));
   }
   const recipes = new Map<number, { ingredients: Map<number, number>; learnable: boolean }>();
@@ -82,7 +89,7 @@ export function parseCookbook(recipeGroups: unknown, ingredientGroups: unknown):
     // Hidden and limited-time recipes can be kept and improved, but no longer learned.
     recipes.set(Number(item.id), { ingredients: needed, learnable: !item.invisible && !item.expireDate });
   }
-  return { recipes, ingredients };
+  return { recipes, ingredients, plantable };
 }
 
 /** Reads recipe.json and ingredient.json from `dir`; an empty cookbook if they are missing. */
@@ -95,7 +102,7 @@ export async function loadCookbook(dir: string): Promise<Cookbook> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`No recipes or ingredients in ${dir}: the kitchen is closed. Run tools/extract_data.py.`);
-      return { recipes: new Map(), ingredients: new Map() };
+      return { recipes: new Map(), ingredients: new Map(), plantable: new Set() };
     }
     throw error;
   }

@@ -104,6 +104,16 @@ func _trade_coins(method: HTTPClient.Method, path: String, body: Dictionary) -> 
 	return result
 
 
+## The garden: {"plotCount", "plots": [{"plot", "ingredientId", "grownSeconds", "wetSeconds", "ripe"}]}.
+func fetch_garden() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/garden")
+
+
+## `action` is "plant", "water", or "harvest".
+func tend_plot(action: String, plot: int) -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/garden/" + action, {"plot": plot})
+
+
 ## Pays for something that is used up at once, like food for the staff.
 func use_item(item_id: int) -> Dictionary:
 	return await _trade("/shop/use", item_id)

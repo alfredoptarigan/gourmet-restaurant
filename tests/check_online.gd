@@ -56,6 +56,9 @@ func _check() -> void:
 	var too_dear := await Api.buy(3040001)
 	_expect(too_dear["status"] == 409 and too_dear["error"] == "Not enough coins", "a 200 coin chair cannot be bought with 2 coins, got %s" % too_dear)
 
+	var garden := await Api.fetch_garden()
+	_expect(garden["ok"] and garden["data"].get("plotCount") == 0.0, "a level 1 player has no garden plot, got %s" % garden)
+
 	var snack := await Api.use_item(6000000)
 	_expect(snack["status"] == 409 and snack["error"] == "Not enough coins", "80 coin food cannot be bought with 2 coins, got %s" % snack)
 

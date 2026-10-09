@@ -120,6 +120,7 @@ func _check_room() -> void:
 	_check_avatar_choice(room)
 	_check_staff_energy(room)
 	_check_recipes(room)
+	_check_garden_form(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -590,6 +591,17 @@ func _check_recipes(room: RestaurantRoom) -> void:
 	room.known_recipes = {}
 	room.ingredients = {}
 	room.menu = {}
+
+
+func _check_garden_form(room: RestaurantRoom) -> void:
+	var growing := {"plot": 1, "ingredientId": 4000000, "grownSeconds": 7200, "wetSeconds": 5400, "ripe": false}
+	_expect(RestaurantRoom.plot_actions({}).size() == 2 and RestaurantRoom.plot_actions({}).back().begins_with("Plant"), "an empty plot can be planted")
+	_expect(RestaurantRoom.plot_actions(growing).back() == "Water" and RestaurantRoom.plot_actions({"ripe": true}).back() == "Harvest", "a growing plot is watered and a ripe one harvested")
+	_expect(RestaurantRoom.describe_plot(1, growing) == "Plot 2: Basil, 2 of 48 wet hours, soil wet for 1.5 h", "a plot reads as its plant and progress, got %s" % RestaurantRoom.describe_plot(1, growing))
+	var panel := room.choose_garden({"plotCount": 2, "plots": [growing]})
+	panel.queue_free()
+	room.open_garden()
+	_expect(room.hud.message_label.text == "Sign in to garden.", "offline there is no garden")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

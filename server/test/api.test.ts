@@ -54,7 +54,7 @@ const cookbook = parseCookbook(
         { id: '4000034', name: 'Salad', cash: '4' },
         { id: '4000040', name: 'Tomato', cash: '8' },
         { id: '4000013', name: 'Egg', cash: '6' },
-        { id: '4000000', name: 'Basil', cash: '8', noCoinShop: true },
+        { id: '4000000', name: 'Basil', cash: '8', noCoinShop: true, plantClassName: 'BasilGrown' },
       ],
     },
   ],
@@ -493,6 +493,57 @@ test('ingredients sell for coins by their cash price, except the ones kept for c
   assert.deepEqual(bought.body.data, { coins: 500, quantity: 1 });
   assert.equal(tooDear.status, 409);
   assert.equal(cashOnly.status, 404);
+});
+
+async function ageGarden(seconds: number): Promise<void> {
+  await sql`update garden_plots set checked_at = checked_at - make_interval(secs => ${seconds}),
+            wet_until = wet_until - make_interval(secs => ${seconds})`;
+}
+
+test('a garden plot opens at level 7 and a seed costs 2000 coins', async () => {
+  const token = await register();
+  await giveCoins(5000);
+
+  const locked = await call(app, 'POST', '/garden/plant', { token, body: { plot: 0 } });
+  await sql`update profiles set gourmet_points = 1000`;
+  const planted = await call(app, 'POST', '/garden/plant', { token, body: { plot: 0 } });
+  const twice = await call(app, 'POST', '/garden/plant', { token, body: { plot: 0 } });
+
+  assert.equal(locked.status, 409);
+  assert.equal(planted.status, 200);
+  assert.equal(planted.body.data.plotCount, 1);
+  assert.deepEqual(planted.body.data.plots, [{ plot: 0, ingredientId: 4000000, grownSeconds: 0, wetSeconds: 10800, ripe: false }]);
+  assert.equal(twice.body.error, 'Something already grows there');
+  assert.equal((await call(app, 'GET', '/profile', { token })).body.data.coins, 3000);
+});
+
+test('a plant only grows while its soil is wet, and is harvested into an ingredient', async () => {
+  const token = await register();
+  await giveCoins(2000);
+  await sql`update profiles set gourmet_points = 1000`;
+  await call(app, 'POST', '/garden/plant', { token, body: { plot: 0 } });
+
+  await ageGarden(5 * 3600);
+  const dry = await call(app, 'GET', '/garden', { token });
+  const early = await call(app, 'POST', '/garden/harvest', { token, body: { plot: 0 } });
+  const watered = await call(app, 'POST', '/garden/water', { token, body: { plot: 0 } });
+  for (let watering = 0; watering < 3; watering += 1) {
+    await call(app, 'POST', '/garden/water', { token, body: { plot: 0 } });
+  }
+  const soaked = await call(app, 'GET', '/garden', { token });
+  await sql`update garden_plots set grown_seconds = ${48 * 3600}`;
+  const harvested = await call(app, 'POST', '/garden/harvest', { token, body: { plot: 0 } });
+  const kitchen = await call(app, 'GET', '/kitchen', { token });
+
+  // Five hours passed, but the soil was wet for only three of them.
+  assert.equal(dry.body.data.plots[0].grownSeconds, 10800);
+  assert.equal(dry.body.data.plots[0].wetSeconds, 0);
+  assert.equal(early.status, 409);
+  assert.equal(watered.body.data.plots[0].wetSeconds, 10800);
+  assert.equal(soaked.body.data.plots[0].wetSeconds, 9 * 3600);
+  assert.equal(harvested.body.data.ingredientId, 4000000);
+  assert.deepEqual(harvested.body.data.plots, []);
+  assert.equal(kitchen.body.data.ingredients[4000000], 1);
 });
 
 test('an item with an unlock level cannot be bought before that level', async () => {

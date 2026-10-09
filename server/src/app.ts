@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { authRoutes } from './auth.ts';
 import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
+import { gardenRoutes } from './garden.ts';
 import { ApiError, fail, ok } from './http.ts';
 import { kitchenRoutes, type Cookbook } from './kitchen.ts';
 import { profileRoutes } from './profile.ts';
@@ -10,7 +11,7 @@ import { shopRoutes } from './shop.ts';
 
 const DEFAULT_AUTH_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
-const EMPTY_COOKBOOK: Cookbook = { recipes: new Map(), ingredients: new Map() };
+const EMPTY_COOKBOOK: Cookbook = { recipes: new Map(), ingredients: new Map(), plantable: new Set() };
 
 export type AppOptions = {
   sql: Sql;
@@ -43,6 +44,7 @@ export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, authRateLim
   app.route('/profile', profileRoutes(sql));
   app.route('/shop', shopRoutes(sql, catalog));
   app.route('/kitchen', kitchenRoutes(sql, cookbook));
+  app.route('/garden', gardenRoutes(sql, cookbook));
 
   return app;
 }
