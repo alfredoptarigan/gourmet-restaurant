@@ -39,6 +39,12 @@ static func tile_draw_order(tile: Vector2i) -> int:
 	return tile.y * MAX_NUM_TILES_X + tile.x
 
 
+## WorldRestaurant.getFacingTile: the tile an item at this rotation looks at.
+static func facing_tile(tile: Vector2i, rotation: int) -> Vector2i:
+	const FACING_OFFSETS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(0, -1)]
+	return tile + FACING_OFFSETS[posmod(rotation, FACING_OFFSETS.size())]
+
+
 ## RoomItem's constructor: how many tiles an item covers, judged from how far its art
 ## reaches right and down from the registration point (in original-game pixels).
 static func footprint_from_extent(extent: Vector2) -> Vector2i:

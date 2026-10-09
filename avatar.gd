@@ -41,9 +41,9 @@ const CUSTOMISABLE_PREFIXES: Array[String] = ["pants", "dress", "shirt", "hat", 
 const TIMELINE_FPS := 10.0
 const DEFAULT_FRAME_DELAY := 0.08
 const DIRECTION_COUNT := 8
-## Directions run clockwise from 0 = walking up the screen, so 4 walks toward the camera
-## and shows the face (AvatarActor.moveTo).
-const FACING_CAMERA_DIRECTION := 4
+## Directions run counter-clockwise on screen from 0 = facing the camera: 2 faces right,
+## 4 away, 6 left (see RoomActor.direction_for).
+const FACING_CAMERA_DIRECTION := 0
 const ISO_PITCH_DEGREES := 30.0
 const TEXTURE_SIZE := 256
 const BODY_MATERIAL := "texture"
@@ -90,7 +90,7 @@ func setup(items: Array, skin_colour: Color, hair_colour: Color) -> void:
 func set_direction(value: int) -> void:
 	direction = posmod(value, DIRECTION_COUNT)
 	if _yaw != null:
-		_yaw.rotation_degrees.y = (FACING_CAMERA_DIRECTION - direction) * 360.0 / DIRECTION_COUNT
+		_yaw.rotation_degrees.y = direction * 360.0 / DIRECTION_COUNT
 
 
 func play(value: int) -> void:

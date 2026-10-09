@@ -1,7 +1,7 @@
 class_name RestaurantRoom
 extends Node2D
-## A restaurant drawn from the original data and art. One character walks to the tile you
-## click. No customers, staff, or editing yet.
+## A restaurant drawn from the original data and art, with RestaurantPlay running it:
+## customers come in, order, eat, and pay. No editing yet.
 ##
 ## The room size counts the wall tiles: row 0 and column 0 hold the walls, which stand on
 ## the inner edge of their tile, and the floor is everything from tile (1, 1) on
@@ -13,6 +13,7 @@ const WALL_CORNER_ITEM := "Wall Corner"
 const WEST_WALL_ROTATION := 0
 const NORTH_WALL_ROTATION := 1
 const DOOR_TYPE := "doorItem"
+const TABLE_TYPE := "tableItem"
 
 ## WorldRestaurant.DEFAULT_RESTAURANT_ITEMS, minus the two wallpaper entries: the wallpaper
 ## is a property of the layout here.
@@ -36,24 +37,15 @@ const DEFAULT_ITEMS: Array[Dictionary] = [
 ]
 const DEFAULT_DOOR_TILE := Vector2i(0, 4)
 
-## GameUser.DEFAULT_MALE_AVATAR_ITEMS plus the free face pieces the original picks by user id.
-const PLACEHOLDER_AVATAR_ITEMS: Array[Dictionary] = [
-	{"name": "Classic", "group": "Hair"},
-	{"name": "Blue Fish Shirt", "group": "Shirt"},
-	{"name": "Classic Pants", "group": "Pants"},
-	{"name": "Simple Eyes", "group": "Eyes"},
-	{"name": "Happy Mouth", "group": "Mouth"},
-	{"name": "Classic EyeBrow", "group": "Eyebrows"},
-]
-const PLACEHOLDER_SKIN_COLOUR := Color("ffdbc0")
-const PLACEHOLDER_HAIR_COLOUR := Color("5a3a22")
-
 @onready var floor_layer: Node2D = $Floor
 @onready var wall_layer: Node2D = $Walls
 @onready var item_layer: Node2D = $Items
 
+@onready var coins_label: Label = $Hud/Coins
+
 var grid: RoomGrid
-var actor: RoomActor
+var items: Array[RoomItem] = []
+var play: RestaurantPlay
 
 var _sprites := SpriteLibrary.load_group("indoor")
 
@@ -78,23 +70,38 @@ func build(layout: Dictionary) -> void:
 	_build_floor(layout["floor"])
 	_build_walls(layout["wallpaper"])
 	_build_items(layout["items"])
-	_spawn_actor(layout["door"])
+	play = RestaurantPlay.new()
+	play.name = "Play"
+	add_child(play)
+	play.coins_changed.connect(_on_coins_changed)
+	_on_coins_changed(play.coins)
+	play.start(self, layout["door"])
 
 
-## Sends the character to a tile. False if the tile cannot be stood on or reached.
-func walk_actor_to(tile: Vector2i) -> bool:
-	if not grid.is_walkable(tile):
-		return false
-	var path := grid.find_path(actor.tile, tile)
-	if path.is_empty():
-		return false
-	actor.walk(path)
-	return true
+func items_of_type(type: String) -> Array[RoomItem]:
+	var matching: Array[RoomItem] = []
+	for item in items:
+		if item.has_type(type):
+			matching.append(item)
+	return matching
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		walk_actor_to(RoomGrid.screen_to_tile(get_local_mouse_position()))
+## WorldRestaurant.getItemAtTile: the first item placed on the tile, or null.
+func item_at(tile: Vector2i) -> RoomItem:
+	for item in items:
+		if Rect2i(item.tile, item.footprint).has_point(tile):
+			return item
+	return null
+
+
+## WorldRestaurant.getTableForChair: the table on the tile the chair faces, or null.
+func table_for_chair(chair: RoomItem) -> RoomItem:
+	var faced := item_at(RoomGrid.facing_tile(chair.tile, chair.rotation))
+	return faced if faced != null and faced.has_type(TABLE_TYPE) else null
+
+
+func _on_coins_changed(coins: int) -> void:
+	coins_label.text = "Coins: %d" % coins
 
 
 func _place(layer: Node2D, sprite_name: String, tile: Vector2i, frame: int) -> Sprite2D:
@@ -146,24 +153,25 @@ func _footprint(config: Dictionary, sprite_name: String, rotation: int) -> Vecto
 	return RoomGrid.rotated_footprint(footprint, rotation)
 
 
-func _build_items(items: Array) -> void:
-	for entry: Dictionary in items:
+func _build_items(entries: Array) -> void:
+	for entry: Dictionary in entries:
 		var sprite_name := _sprite_name_of(entry["name"])
 		if sprite_name.is_empty():
 			continue
-		var tile: Vector2i = entry["tile"]
-		var sprite := _place(item_layer, sprite_name, tile, entry["rotation"])
+		var turns: int = entry["rotation"]
+		var sprite := _place(item_layer, sprite_name, entry["tile"], turns)
 		if sprite == null:
 			continue
-		sprite.z_index = RoomGrid.tile_draw_order(tile) * RoomActor.DRAW_ORDER_STEP
-		var config := GameData.interior_items.get_item(entry["name"])
-		var is_door := DOOR_TYPE in GameData.interior_items.get_item_types(entry["name"])
-		grid.add_item(tile, _footprint(config, sprite_name, entry["rotation"]), is_door)
-
-
-func _spawn_actor(door_tile: Vector2i) -> void:
-	actor = RoomActor.new()
-	actor.name = "Actor"
-	item_layer.add_child(actor)
-	actor.place_on(door_tile)
-	actor.avatar.setup(PLACEHOLDER_AVATAR_ITEMS, PLACEHOLDER_SKIN_COLOUR, PLACEHOLDER_HAIR_COLOUR)
+		var item := RoomItem.new()
+		item.item_name = entry["name"]
+		item.config = GameData.interior_items.get_item(entry["name"])
+		item.types = GameData.interior_items.get_item_types(entry["name"])
+		item.tile = entry["tile"]
+		# The shown frame wraps at the art's frame count, but the footprint turns every time:
+		# the default stove is asked for 3 turns, shows frame 0, and still ends up 1 x 2.
+		item.rotation = sprite.frame
+		item.footprint = _footprint(item.config, sprite_name, turns)
+		item.sprite = sprite
+		sprite.z_index = RoomGrid.tile_draw_order(item.tile) * RoomActor.DRAW_ORDER_STEP
+		grid.add_item(item.tile, item.footprint, item.has_type(DOOR_TYPE))
+		items.append(item)

@@ -1,9 +1,9 @@
 # Gourmet Street
 
 A fan remake of a 2010 isometric restaurant game, built with Godot 4 and a small
-Hono + PostgreSQL backend. Early work in progress: a new player's restaurant renders from
-the original data and art, and the backend handles accounts and saved profiles. Nothing is
-playable yet.
+Hono + PostgreSQL backend. Early work in progress: a new player's restaurant runs on its
+own from the original data and art (customers come in, order, eat, and pay), and the backend
+handles accounts and saved profiles. The two are not connected yet, and there is no editing.
 
 ## No game assets in this repository
 

@@ -3,8 +3,9 @@ extends Node2D
 ## A character that walks the restaurant tile by tile. Ports the movement of
 ## RestaurantActor and AvatarActor. The node sits on the top corner of its tile, as the
 ## original actor did; the avatar's feet are half a tile lower, in the middle of the diamond.
-
-signal arrived
+##
+## Actors do not run on their own: whoever owns them calls tick(), so the simulation can be
+## stepped without real time passing.
 
 ## AvatarActor.DEFAULT_MOVE_SPEED_X / Y are 0.06 and 0.03 pixels per millisecond.
 const MOVE_SPEED := Vector2(60.0, 30.0)
@@ -20,9 +21,13 @@ var _target: Vector2
 var _moving := false
 
 
-## AvatarActor.moveTo: the facing comes from the sign of the screen movement.
-static func direction_for(movement: Vector2) -> int:
-	var angle := atan2(signf(movement.y), signf(movement.x)) + PI / 2.0
+## AvatarActor.moveTo and face. Directions run counter-clockwise on screen from 0 = toward
+## the camera: 2 is right, 4 is away, 6 is left. `by_sign` reads only the sign of each axis,
+## as moveTo does for a step; without it the true angle is used, as face does for a target.
+static func direction_for(movement: Vector2, by_sign: bool = true) -> int:
+	var heading := Vector2(signf(movement.x), signf(movement.y)) if by_sign else movement
+	# Engine.getAngle measures with y pointing up, hence the flipped sign.
+	var angle := atan2(-heading.y, heading.x) + PI / 2.0
 	return posmod(roundi(angle / (TAU / DIRECTION_COUNT)), DIRECTION_COUNT)
 
 
@@ -43,15 +48,21 @@ func is_walking() -> bool:
 
 
 ## Follows the tiles in order. An empty path is ignored.
-func walk(path: Array[Vector2i]) -> void:
+func walk(path: Array[Vector2i], animation: int = Avatar.Animations.WALK) -> void:
 	if path.is_empty():
 		return
 	_path = path.duplicate()
 	_moving = false
-	avatar.play(Avatar.Animations.WALK)
+	avatar.play(animation)
 
 
-func _process(delta: float) -> void:
+func face_tile(target: Vector2i) -> void:
+	var toward := RoomGrid.tile_to_screen(target) - position
+	if toward != Vector2.ZERO:
+		avatar.set_direction(direction_for(toward, false))
+
+
+func tick(delta: float) -> void:
 	if not is_walking():
 		return
 	if not _moving:
@@ -66,9 +77,6 @@ func _process(delta: float) -> void:
 	_update_tile()
 	if position == _target:
 		_moving = false
-		if _path.is_empty():
-			avatar.play(Avatar.Animations.IDLE)
-			arrived.emit()
 
 
 func _update_tile() -> void:

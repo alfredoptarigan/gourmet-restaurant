@@ -4,6 +4,8 @@ extends Node
 ## It runs as a scene, not with -s, because scripts that name an autoload only compile
 ## inside the running project. The shell wrapper decides pass or fail: see its comment.
 
+const SIMULATED_SECONDS := 300
+const SIMULATION_STEP := 0.1
 const BIND_TURN_TOLERANCE := 0.02
 const BIND_OFFSET_TOLERANCE := 1.0
 
@@ -67,23 +69,47 @@ func _check_room() -> void:
 	await get_tree().process_frame
 	_expect(room.get_node("Floor").get_child_count() == 49, "an 8x8 room has a 7x7 floor inside its walls")
 	_expect(room.get_node("Walls").get_child_count() == 29, "14 wall pieces, 14 wallpapers, and a corner")
-	# The items layer also holds the actor.
-	_expect(room.get_node("Items").get_child_count() == RestaurantRoom.DEFAULT_ITEMS.size() + 1,
-			"every default item should be placed, got %d" % room.get_node("Items").get_child_count())
+	_expect(room.items.size() == RestaurantRoom.DEFAULT_ITEMS.size(), "every default item should be placed, got %d" % room.items.size())
 	_expect(not room.grid.is_walkable(Vector2i(3, 3)), "a table blocks its tile")
 	_expect(not room.grid.is_walkable(Vector2i(0, 3)), "a wall blocks its tile")
 	_expect(room.grid.is_walkable(Vector2i(0, 4)), "the door opens the wall tile it is on")
 	_expect(room.grid.is_walkable(Vector2i(1, 4)), "the tile inside the door is free")
 	_expect(not room.grid.is_walkable(Vector2i(6, 3)), "the rotated stove covers the tile below it")
-	_expect(room.actor.tile == RestaurantRoom.DEFAULT_DOOR_TILE, "the actor starts in the doorway")
-	_expect(not room.walk_actor_to(Vector2i(3, 3)), "the actor refuses to walk onto a table")
-	_expect(room.walk_actor_to(Vector2i(4, 4)), "the actor accepts a free tile")
-	_expect(room.actor.is_walking(), "the actor should be walking after accepting a tile")
+	var seat := room.item_at(Vector2i(2, 3))
+	_expect(seat != null and seat.has_type("chairItem"), "the item on (2, 3) is a chair")
+	_expect(seat != null and room.table_for_chair(seat) == room.item_at(Vector2i(3, 3)), "that chair faces the table on (3, 3)")
+	_expect(room.item_at(Vector2i(6, 3)) == room.item_at(Vector2i(6, 2)), "the stove also covers (6, 3)")
+	_expect(room.item_at(Vector2i(4, 4)) == null, "an empty tile has no item")
 	var path := room.grid.find_path(RestaurantRoom.DEFAULT_DOOR_TILE, Vector2i(4, 4))
 	_expect(not path.is_empty() and path.all(func(step: Vector2i) -> bool: return room.grid.is_walkable(step)),
 			"the path to (4, 4) should only cross free tiles, got %s" % [path])
-	_check_avatar(room.actor.avatar)
+	_check_avatar(room.play.waiters[0].avatar)
+	_check_simulation(room)
 	room.queue_free()
+
+
+func _check_simulation(room: RestaurantRoom) -> void:
+	var play := room.play
+	play.set_process(false)
+	play.rng.seed = 7
+	_expect(play.chefs.size() == 1 and play.chefs[0].tile == Vector2i(7, 2), "the chef stands on the mat in front of the stove")
+	_expect(play.waiters.size() == 1 and play.waiters[0].tile == Vector2i(5, 2), "the waiter waits beside the stove")
+	_expect(play.chefs[0].avatar.direction == 5, "the chef faces the stove")
+	var states_seen := {}
+	var seconds := 0.0
+	while seconds < SIMULATED_SECONDS:
+		play.tick(SIMULATION_STEP)
+		seconds += SIMULATION_STEP
+		for customer in play.customers:
+			states_seen[customer.state] = true
+			if customer.state == Customer.State.DECIDING:
+				_expect(customer.tile == customer.chair.tile, "a seated customer should be on its chair's tile")
+	for state: int in [Customer.State.WALKING_TO_CHAIR, Customer.State.WAITING_FOR_FOOD, Customer.State.EATING, Customer.State.PAYING, Customer.State.LEAVING]:
+		_expect(states_seen.has(state), "some customer should reach state %s" % Customer.State.keys()[state])
+	_expect(play.happy_customers > 0, "at least one customer should leave happy in %d simulated seconds" % SIMULATED_SECONDS)
+	_expect(play.coins > 0 and play.coins == int(play.gourmet_points) * 2, "each cleared plate should pay its recipe's 2 coins, got %d coins for %d dishes" % [play.coins, int(play.gourmet_points)])
+	_expect(play.customers.size() <= room.items_of_type("chairItem").size() + 2, "customers should not pile up, got %d" % play.customers.size())
+	_expect(play.demand != RestaurantPlay.DEFAULT_DEMAND, "leaving customers should move the demand")
 
 
 func _check_grid() -> void:
@@ -95,9 +121,15 @@ func _check_grid() -> void:
 	_expect(RoomGrid.footprint_from_extent(Vector2(80, 60)) == Vector2i(2, 1), "the stove's art covers 2x1 tiles")
 	_expect(RoomGrid.footprint_from_extent(Vector2(19.5, 30.4)) == Vector2i(1, 1), "a chair covers one tile")
 	_expect(RoomGrid.rotated_footprint(Vector2i(2, 1), 3) == Vector2i(1, 2), "an odd rotation swaps the footprint")
-	_expect(RoomActor.direction_for(Vector2(0, -20)) == 0, "moving up the screen is direction 0")
-	_expect(RoomActor.direction_for(Vector2(40, 20)) == 3, "moving right and down is direction 3")
-	_expect(RoomActor.direction_for(Vector2(-40, 20)) == 5, "moving left and down is direction 5")
+	_expect(RoomActor.direction_for(Vector2(0, 20)) == 0, "moving down the screen faces the camera: direction 0")
+	_expect(RoomActor.direction_for(Vector2(40, 20)) == 1, "a step along +x (right and down) is direction 1")
+	_expect(RoomActor.direction_for(Vector2(-40, 20)) == 7, "a step along +y (left and down) is direction 7")
+	_expect(RoomActor.direction_for(Vector2(0, -20)) == 4, "moving up the screen is direction 4")
+	_expect(RoomActor.direction_for(Vector2(80, 5), false) == 2, "facing a point to the right is direction 2")
+	_expect(RoomGrid.facing_tile(Vector2i(2, 3), 0) == Vector2i(3, 3), "rotation 0 faces +x")
+	_expect(RoomGrid.facing_tile(Vector2i(2, 3), 3) == Vector2i(2, 2), "rotation 3 faces -y")
+	_expect(RestaurantPlay.actor_direction_for(0) == 1 and RestaurantPlay.actor_direction_for(1) == 7, "item rotations map to the directions they face")
+	_expect(Waiter.rotate_offset(Vector2i(-1, 0), 1) == Vector2i(0, -1), "a quarter turn rotates a home offset")
 
 	var grid := RoomGrid.new(Vector2i(4, 4))
 	grid.add_item(Vector2i(1, 0), Vector2i(1, 3))
@@ -133,8 +165,10 @@ func _check_avatar(avatar: Avatar) -> void:
 		var turned := at_rest.basis.x.distance_to(Vector3.RIGHT) + at_rest.basis.y.distance_to(Vector3.UP)
 		_expect(turned < BIND_TURN_TOLERANCE and at_rest.origin.length() < BIND_OFFSET_TOLERANCE,
 				"a bone at rest times its bind pose should leave the mesh where it is, got %s" % at_rest)
+	var facing := avatar.direction
 	avatar.set_direction(9)
 	_expect(avatar.direction == 1, "direction 9 should wrap to 1")
+	avatar.set_direction(facing)
 	avatar.play(Avatar.Animations.WAITOR_WALK)
 	var tray := avatar.find_child("tray", true, false) as Node3D
 	_expect(tray != null and tray.visible, "the tray should show while a waiter walks")
