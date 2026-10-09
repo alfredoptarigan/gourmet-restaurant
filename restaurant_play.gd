@@ -13,7 +13,8 @@ signal extra_paid
 ## Something happened that the original marks with a sound; the value is the sound's name.
 signal sound_wanted(sound_name: String)
 
-enum Job { CHEF, WAITER, CLEANER }
+## GameUserEmployee.JOB_*. A resting employee is not in the room and gets their energy back.
+enum Job { CHEF, WAITER, CLEANER, REST }
 
 ## WorldRestaurantPlay and GameWorld constants.
 const CUSTOMERS_PER_MINUTE_PER_DEMAND := 0.05
@@ -51,6 +52,15 @@ const COINS_PER_EXTRA := 1
 const TRASH_APPEAR_RATE := 3600.0
 const TRASH_APPEAR_JITTER := 60.0
 const MAX_TRASH := 15
+## GameUserEmployee.MAX_WORK_TIME: a rested employee works for four hours.
+const MAX_WORK_TIME := 14400.0
+## WorldRestaurantPlay.REST_WORK_TIME_INCREASE_MULTIPLYER: resting restores three times as fast.
+const REST_GAIN := 3.0
+## Above and below these shares of full energy staff are at their best and at their worst.
+const RESTED_PERCENT := 80.0
+const WORN_OUT_PERCENT := 20.0
+## Waitor.MIN_WALK_SPEED_Y over MAX_WALK_SPEED_Y.
+const TIRED_WALK_SPEED := 1.0 / 3.0
 ## WorldRestaurantPlay.DEFAULT_TRASH_ITEMS.
 const TRASH_SPRITES: Array[String] = ["BananaPeel", "PizzaSlice", "SodaCan", "ChickenLeg", "AppleCore"]
 const GOURMET_POINTS_PER_EXTRA := 1.0
@@ -72,6 +82,8 @@ var customers: Array[Customer] = []
 var chefs: Array[Chef] = []
 var waiters: Array[Waiter] = []
 var cleaners: Array[Cleaner] = []
+## The job of each employee, as given to start().
+var jobs: Array[int] = []
 ## Orders waiting for a chef, cooked dishes waiting for a waiter, plates waiting to be cleared.
 var orders: Array[DishOrder] = []
 var completed_orders: Array[DishOrder] = []
@@ -80,8 +92,6 @@ var empty_plates: Array[DishOrder] = []
 var waiting_chair_queue: Array[Customer] = []
 
 var _arrival_timer := 0.0
-## The job whose first employee is still to be dressed as the player, or -1.
-var _player_job := -1
 
 
 static func actor_direction_for(item_rotation: int) -> int:
@@ -103,38 +113,86 @@ static func default_jobs(employee_limit: int, kitchen_count: int) -> Array[int]:
 	return jobs
 
 
-## Opens the restaurant with one employee for every entry of `jobs` (a Job each).
+## Opens the restaurant with one employee for every entry of `staff_jobs` (a Job each).
 ## ponytail: a chef with no kitchen appliance of their own is left out. The original shows
-## them idle with a "need a stove" bubble.
-func start(restaurant_room: RestaurantRoom, jobs: Array[int]) -> void:
+## them idle with a "need a stove" bubble. A resting employee is not shown either; the
+## original puts them to sleep in a bed.
+func start(restaurant_room: RestaurantRoom, staff_jobs: Array[int]) -> void:
 	room = restaurant_room
+	jobs = staff_jobs
 	if room.items_of_type(DOOR_TYPE).is_empty():
 		push_warning("RestaurantPlay: no door, so no customers can come in")
 	_arrival_timer = _next_arrival_delay()
 	var kitchens := room.items_of_type(KITCHEN_TYPE)
 	if kitchens.is_empty():
 		push_warning("RestaurantPlay: no kitchen, so nothing can be cooked")
-	# The first employee is the player, and wears the look the player chose.
-	_player_job = jobs[0] if not jobs.is_empty() and not room.look.is_empty() else -1
 	var taken_tiles: Array[Vector2i] = []
-	for index in mini(jobs.count(Job.CHEF), kitchens.size()):
+	var cooks := _employees_with(Job.CHEF)
+	for index in mini(cooks.size(), kitchens.size()):
 		var chef := Chef.new()
-		_add_staff(chef, Job.CHEF, [CHEF_HAT])
+		_add_staff(chef, cooks[index], [CHEF_HAT])
 		chef.start(self, kitchens[index])
 		chefs.append(chef)
 		taken_tiles.append(chef.tile)
-	for index in (jobs.count(Job.WAITER) if not kitchens.is_empty() else 0):
+	for employee in (_employees_with(Job.WAITER) if not kitchens.is_empty() else []):
 		var waiter := Waiter.new()
-		_add_staff(waiter, Job.WAITER, [])
-		waiter.start(self, kitchens[index % kitchens.size()], taken_tiles)
+		_add_staff(waiter, employee, [])
+		waiter.start(self, kitchens[waiters.size() % kitchens.size()], taken_tiles)
 		waiters.append(waiter)
 		taken_tiles.append(waiter.tile)
-	for index in jobs.count(Job.CLEANER):
+	for employee in _employees_with(Job.CLEANER):
 		var cleaner := Cleaner.new()
-		_add_staff(cleaner, Job.CLEANER, [])
+		_add_staff(cleaner, employee, [])
 		cleaner.start(self, taken_tiles)
 		cleaners.append(cleaner)
 		taken_tiles.append(cleaner.tile)
+
+
+func _employees_with(job: int) -> Array[int]:
+	var employees: Array[int] = []
+	for employee in jobs.size():
+		if jobs[employee] == job:
+			employees.append(employee)
+	return employees
+
+
+func has_energy(employee: int) -> bool:
+	return room.energy[employee] > 0.0
+
+
+## ChefActor.getCookTime and Waitor.getDelay: `best` while the employee has most of their
+## energy, `worst` when nearly out, and in proportion in between.
+func tired(employee: int, best: float, worst: float) -> float:
+	return tired_at(room.energy[employee] / MAX_WORK_TIME * 100.0, best, worst)
+
+
+static func tired_at(energy_percent: float, best: float, worst: float) -> float:
+	if energy_percent >= RESTED_PERCENT:
+		return best
+	if energy_percent < WORN_OUT_PERCENT:
+		return worst
+	return worst - (worst - best) * (energy_percent - WORN_OUT_PERCENT) / (RESTED_PERCENT - WORN_OUT_PERCENT)
+
+
+## Waitor.setWalkSpeed, as a share of the normal speed.
+func walk_speed(employee: int) -> float:
+	return tired(employee, 1.0, TIRED_WALK_SPEED)
+
+
+## GameUser.isRestaurantClosed: open only with a chef and a waiter who both have energy left.
+func is_closed() -> bool:
+	var chef_working := chefs.any(func(chef: Chef) -> bool: return has_energy(chef.employee))
+	var waiter_working := waiters.any(func(waiter: Waiter) -> bool: return has_energy(waiter.employee))
+	return not (chef_working and waiter_working)
+
+
+## GameUser.tick: work uses energy up second for second, rest gives it back faster.
+static func spend_energy(energy: Array[float], staff_jobs: Array[int], seconds: float) -> void:
+	for employee in mini(energy.size(), staff_jobs.size()):
+		if staff_jobs[employee] == Job.REST:
+			energy[employee] = minf(energy[employee] + seconds * REST_GAIN, MAX_WORK_TIME)
+		else:
+			energy[employee] = maxf(energy[employee] - seconds, 0.0)
 
 
 func _process(delta: float) -> void:
@@ -142,6 +200,7 @@ func _process(delta: float) -> void:
 
 
 func tick(delta: float) -> void:
+	spend_energy(room.energy, jobs, delta)
 	for chef in chefs:
 		chef.tick(delta)
 	for waiter in waiters:
@@ -333,8 +392,11 @@ func outside_entrances() -> Array[Vector2i]:
 	return tiles
 
 
-## ponytail: only customers walk the street. The original also sends passers-by along it.
+## ponytail: only customers walk the street. The original also sends passers-by along it,
+## and lets the popularity sink while the restaurant is closed.
 func _let_customers_in(delta: float) -> void:
+	if is_closed():
+		return
 	_arrival_timer -= delta
 	if _arrival_timer > 0.0:
 		return
@@ -356,11 +418,12 @@ func _add_actor(actor: RoomActor, extra_items: Array) -> void:
 	actor.avatar.setup(_random_look() + extra_items, _pick(SKIN_COLOURS), _pick(HAIR_COLOURS))
 
 
-func _add_staff(actor: RoomActor, job: int, extra_items: Array) -> void:
-	if job != _player_job:
+## The first employee is the player, and wears the look the player chose.
+func _add_staff(actor: RoomActor, employee: int, extra_items: Array) -> void:
+	actor.employee = employee
+	if employee != 0 or room.look.is_empty():
 		_add_actor(actor, extra_items)
 		return
-	_player_job = -1
 	room.item_layer.add_child(actor)
 	var worn: Array = []
 	for group_name: String in room.look["items"]:

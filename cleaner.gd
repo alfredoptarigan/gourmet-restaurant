@@ -2,13 +2,13 @@ class_name Cleaner
 extends RoomActor
 ## Picks up trash and repairs broken toilets and arcade machines. Port of CleanerEmployee.as.
 ##
-## ponytail: staff never tire here, so the delay is the original's best case (a happy
-## cleaner); port CleanerEmployee.getActionDelay and setWalkSpeed with staff energy.
+## A tired cleaner works and walks more slowly, and one with no energy left stops.
 
 enum State { IDLE, WALKING, CLEANING }
 
 ## CleanerEmployee.ACTION_DELAY_MIN: how long one job takes.
 const ACTION_DELAY := 6.0
+const ACTION_DELAY_TIRED := 12.0
 ## The pause between jobs.
 const REST_TIME := 2.0
 
@@ -18,6 +18,7 @@ var state: int = State.IDLE
 var cleaning_item: RoomItem
 
 var _timer := 0.0
+var _worn_out := false
 
 
 ## WorldRestaurantPlay.addCleaner: a cleaner starts in front of a toilet if there is one.
@@ -28,11 +29,15 @@ func start(restaurant_play: RestaurantPlay, taken_tiles: Array[Vector2i]) -> voi
 
 
 func tick(delta: float) -> void:
+	speed_scale = play.walk_speed(employee)
 	super(delta)
 	_timer -= delta
 	match state:
 		State.IDLE:
-			if _timer <= 0.0:
+			if _worn_out == play.has_energy(employee):
+				_worn_out = not _worn_out
+				avatar.play(Avatar.Animations.CLEANER_DEAD if _worn_out else Avatar.Animations.CLEANER_IDLE)
+			if _timer <= 0.0 and not _worn_out:
 				_find_work()
 		State.WALKING:
 			if not is_walking():
@@ -95,7 +100,7 @@ func _start_cleaning() -> void:
 	if cleaning_item != null:
 		face_tile(cleaning_item.tile)
 	avatar.play(Avatar.Animations.CLEANER_REPAIR if repairing else Avatar.Animations.CLEAN)
-	_timer = ACTION_DELAY
+	_timer = play.tired(employee, ACTION_DELAY, ACTION_DELAY_TIRED)
 	state = State.CLEANING
 
 

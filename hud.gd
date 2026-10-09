@@ -56,8 +56,9 @@ func set_gourmet_points(points: int) -> void:
 	level_bar.tooltip_text = "%d gourmet points" % points
 
 
-func set_demand(demand: float) -> void:
-	demand_label.text = "Popularity: %d" % roundi(demand)
+## A closed restaurant lets no customers in: it needs a chef and a waiter with energy left.
+func set_demand(demand: float, closed: bool = false) -> void:
+	demand_label.text = "Popularity: %d%s" % [roundi(demand), " (closed: staff need rest)" if closed else ""]
 
 
 func set_signed_in(signed_in: bool) -> void:

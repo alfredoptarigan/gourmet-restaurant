@@ -2,15 +2,16 @@ class_name Waiter
 extends RoomActor
 ## Carries cooked dishes to customers and clears empty plates. Port of Waitor.as.
 ##
-## ponytail: staff never tire here, so delays are the original's best case (a happy
-## waiter); port Waitor.getDelay and setWalkSpeed with staff energy.
+## A tired waiter works and walks more slowly, and one with no energy left takes no new job.
 
 enum State { IDLE, MOVING_TO_GET_ORDER, SERVING, MOVING_TO_GET_EMPTY_PLATE, MOVING_BACK, MOVING_TO_GET_DRINK }
 
 ## Waitor.ACTION_DELAY_MIN: the pause at the stove or table before moving on.
 const ACTION_DELAY := 2.0
+const ACTION_DELAY_TIRED := 6.0
 ## Waitor.DRINK_MAKING_DELAY_MIN: how long making a drink takes at a plain dispenser.
 const DRINK_MAKING_DELAY := 12.0
+const DRINK_MAKING_DELAY_TIRED := 24.0
 ## Waitor.setInitialTilePosition: where a waiter may stand, relative to an unrotated kitchen.
 const HOME_OFFSETS: Array[Vector2i] = [
 	Vector2i(-1, 0), Vector2i(-1, -1), Vector2i(-1, 1), Vector2i(0, -1),
@@ -27,6 +28,7 @@ var state: int = State.IDLE
 var _home: Vector2i
 var _timer := 0.0
 var _at_work := false
+var _worn_out := false
 
 
 func start(restaurant_play: RestaurantPlay, at_kitchen: RoomItem, taken_tiles: Array[Vector2i]) -> void:
@@ -37,7 +39,7 @@ func start(restaurant_play: RestaurantPlay, at_kitchen: RoomItem, taken_tiles: A
 
 
 func is_free() -> bool:
-	return state == State.IDLE or state == State.MOVING_BACK
+	return (state == State.IDLE or state == State.MOVING_BACK) and play.has_energy(employee)
 
 
 func get_order_from_kitchen(cooked: DishOrder) -> void:
@@ -56,7 +58,7 @@ func get_drink(ordered: DishOrder, dispenser: RoomItem, path: Array[Vector2i]) -
 	drink_item = dispenser
 	dispenser.waiter = self
 	walk(path)
-	_timer = dispenser.operate_time(DRINK_MAKING_DELAY)
+	_timer = dispenser.operate_time(play.tired(employee, DRINK_MAKING_DELAY, DRINK_MAKING_DELAY_TIRED))
 	_at_work = false
 	state = State.MOVING_TO_GET_DRINK
 	ordered.customer.wait_for_food()
@@ -69,8 +71,13 @@ func drop_order(dropped: DishOrder) -> void:
 
 
 func tick(delta: float) -> void:
+	speed_scale = play.walk_speed(employee)
 	super(delta)
 	match state:
+		State.IDLE:
+			if _worn_out == play.has_energy(employee):
+				_worn_out = not _worn_out
+				avatar.play(Avatar.Animations.DEAD if _worn_out else Avatar.Animations.IDLE)
 		State.MOVING_BACK:
 			if not is_walking():
 				avatar.play(Avatar.Animations.IDLE)
@@ -124,7 +131,7 @@ func _walk_next_to(target: Vector2i, next_state: int) -> void:
 	var path := play.room.grid.find_path(tile, target)
 	path.pop_back()
 	walk(path)
-	_timer = ACTION_DELAY
+	_timer = play.tired(employee, ACTION_DELAY, ACTION_DELAY_TIRED)
 	_at_work = false
 	state = next_state
 

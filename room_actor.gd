@@ -16,6 +16,10 @@ const DRAW_ORDER_STEP := 4
 
 var tile: Vector2i
 var avatar := Avatar.new()
+## Staff: which employee this is (the index of their job and energy), and how fast they
+## walk for how tired they are.
+var employee := -1
+var speed_scale := 1.0
 
 var _path: Array[Vector2i] = []
 var _target: Vector2
@@ -73,8 +77,8 @@ func tick(delta: float) -> void:
 			avatar.set_direction(direction_for(_target - position))
 	# Each axis moves at its own speed and stops on its own, as in RestaurantActor.tick.
 	position = Vector2(
-		move_toward(position.x, _target.x, MOVE_SPEED.x * delta),
-		move_toward(position.y, _target.y, MOVE_SPEED.y * delta))
+		move_toward(position.x, _target.x, MOVE_SPEED.x * speed_scale * delta),
+		move_toward(position.y, _target.y, MOVE_SPEED.y * speed_scale * delta))
 	_update_tile()
 	if position == _target:
 		_moving = false

@@ -118,6 +118,7 @@ func _check_room() -> void:
 	_check_drinks(room)
 	_check_outdoor_area(room)
 	_check_avatar_choice(room)
+	_check_staff_energy(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -524,10 +525,43 @@ func _check_avatar_choice(room: RestaurantRoom) -> void:
 	var second_hair: String = RestaurantPlay.wearable("Hair")[1]["name"]
 	_expect(room.look.get("items", {}).get("Hair") == second_hair and room.look.get("skin") == 3, "the avatar form sets the player's look, got %s" % room.look)
 	_expect(RestaurantRoom.valid_look(JSON.parse_string(JSON.stringify(room.look))) == room.look, "the look survives being saved and loaded")
-	_expect(room.play != null and room.play._player_job == -1 and room.play.chefs.size() == 1, "the restaurant reopens with the first employee dressed as the player")
+	_expect(room.play != null and room.play.chefs.size() == 1 and room.play.chefs[0].employee == 0, "the restaurant reopens with the first employee dressed as the player")
 	room.stop_play()
 	room.look = {}
 	room.start_play()
+
+
+func _check_staff_energy(room: RestaurantRoom) -> void:
+	const FULL := RestaurantPlay.MAX_WORK_TIME
+	_expect(RestaurantPlay.tired_at(100.0, 16.0, 32.0) == 16.0 and RestaurantPlay.tired_at(10.0, 16.0, 32.0) == 32.0, "rested staff are quickest and worn out staff slowest")
+	_expect(is_equal_approx(RestaurantPlay.tired_at(50.0, 16.0, 32.0), 24.0), "in between, speed follows energy")
+	var away := RestaurantRoom.rested_energy({"left": [100.0, FULL], "at": 1000.0}, [RestaurantPlay.Job.REST, RestaurantPlay.Job.WAITER], 1100.0)
+	_expect(away == [400.0, FULL - 100.0], "time away rests the resting and tires the working, got %s" % [away])
+	_expect(RestaurantRoom.rested_energy({"left": ["lots"], "at": 1.0}, [], 2.0).is_empty() and RestaurantRoom.rested_energy([], [], 2.0).is_empty(), "malformed saved energy is ignored")
+
+	room.stop_play()
+	room.energy = [0.0, FULL * 0.1]
+	room.start_play()
+	var play := room.play
+	play.set_process(false)
+	room._process(0.0)
+	_expect(play.is_closed() and not play.chefs[0].is_free() and room.hud.demand_label.text.contains("closed"), "a restaurant whose only chef is worn out is closed")
+	play.tick(100.0)
+	_expect(play.customers.is_empty(), "a closed restaurant lets nobody in")
+	_expect(is_equal_approx(play.waiters[0].speed_scale, RestaurantPlay.TIRED_WALK_SPEED) and is_equal_approx(room.energy[1], FULL * 0.1 - 100.0), "a tired waiter walks slowly and keeps tiring")
+
+	var panel := room.choose_staff()
+	panel.select(0, RestaurantPlay.Job.REST)
+	panel.finish()
+	room.play.set_process(false)
+	room.play.tick(10.0)
+	_expect(room.play.chefs.is_empty() and is_equal_approx(room.energy[0], 10.0 * RestaurantPlay.REST_GAIN), "a resting employee leaves the room and recovers three times as fast")
+
+	room.stop_play()
+	room.jobs = []
+	room.energy = []
+	room.start_play()
+	_expect(not room.play.is_closed() and room.energy == [FULL, FULL], "a fresh staff is rested and the restaurant open")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

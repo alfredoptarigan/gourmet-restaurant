@@ -29,13 +29,14 @@ const CLEANER_NEEDED_SPRITE := "CleanerNeeded"
 const MENU_KEY := "menu"
 const JOBS_KEY := "jobs"
 const AVATAR_KEY := "avatar"
+const ENERGY_KEY := "energy"
 ## The group of the outdoor area sizes the shop sells, and the type of outdoor-only items.
 const OUTSIDE_GROUP := "OutsideAreaSize"
 const OUTDOOR_TYPE := "outdoor"
 ## The grass of the outdoor area: the base colour in WorldRestaurant.setOutsideAreaSize.
 const GRASS := Color("a2c957")
 ## In the order of RestaurantPlay.Job.
-const JOB_NAMES: Array[String] = ["Chef", "Waiter", "Cleaner"]
+const JOB_NAMES: Array[String] = ["Chef", "Waiter", "Cleaner", "Rest"]
 ## Above the head of a standing character, in original-game pixels from its tile.
 const EMOTION_OFFSET := Vector2(0, -52)
 ## Where the middle of the floor sits on the 760 x 600 stage.
@@ -85,6 +86,11 @@ var wallpaper_id := 0
 var outside_size := Vector2i.ZERO
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
 var jobs: Array[int] = []
+## The working time each employee has left, in seconds (RestaurantPlay.MAX_WORK_TIME when
+## rested). It is saved with the time of saving, so time away counts too.
+## ponytail: saved when the staff change, on decorating, and on signing out, not on quitting.
+## Food that restores energy (the Employee perks) is not sold yet; resting is the only cure.
+var energy: Array[float] = []
 ## How the player looks: {"items": {group: item name}, "skin": index, "hair": index} with the
 ## indexes into RestaurantPlay.SKIN_COLOURS and HAIR_COLOURS. Empty until the player chooses.
 var look: Dictionary = {}
@@ -117,6 +123,7 @@ func _ready() -> void:
 		jobs = valid_jobs(saved.get(JOBS_KEY))
 		menu = valid_menu(saved.get(MENU_KEY))
 		look = valid_look(saved.get(AVATAR_KEY))
+		energy = rested_energy(saved.get(ENERGY_KEY), jobs, Time.get_unix_time_from_system())
 		var inventory := await Api.fetch_inventory()
 		if inventory["ok"] and inventory["data"].get("items") is Dictionary:
 			var owned := {}
@@ -147,6 +154,27 @@ static func valid_jobs(saved: Variant) -> Array[int]:
 			return []
 		checked.append(int(entry))
 	return checked
+
+
+## Saved energy as it stands `now` (unix seconds): every employee kept working or resting
+## while the player was away. Empty unless the save is well-formed.
+static func rested_energy(saved: Variant, staff_jobs: Array[int], now: float) -> Array[float]:
+	var left: Array[float] = []
+	if not saved is Dictionary or not saved.get("left") is Array or not saved.get("at") is float:
+		return left
+	for entry: Variant in saved["left"]:
+		if not (entry is float or entry is int):
+			return []
+		left.append(clampf(entry, 0.0, RestaurantPlay.MAX_WORK_TIME))
+	var working: Array[int] = staff_jobs.duplicate()
+	while working.size() < left.size():
+		working.append(RestaurantPlay.Job.WAITER)
+	RestaurantPlay.spend_energy(left, working, maxf(0.0, now - float(saved["at"])))
+	return left
+
+
+func _save_energy() -> void:
+	await _save(ENERGY_KEY, {"left": energy, "at": Time.get_unix_time_from_system()})
 
 
 ## A saved look as the game can use it: empty unless every part of it is something wearable.
@@ -252,7 +280,7 @@ func _process(_delta: float) -> void:
 	_sync_emotions()
 	_sync_broken_marks()
 	_sync_trash()
-	hud.set_demand(play.demand)
+	hud.set_demand(play.demand, play.is_closed())
 
 
 ## Dragging with the right or middle button scrolls a restaurant bigger than the screen.
@@ -393,7 +421,11 @@ func start_play() -> void:
 	play = RestaurantPlay.new()
 	play.name = "Play"
 	add_child(play)
-	play.start(self, staff_jobs())
+	var staff := staff_jobs()
+	energy.resize(mini(energy.size(), staff.size()))
+	while energy.size() < staff.size():
+		energy.append(RestaurantPlay.MAX_WORK_TIME)
+	play.start(self, staff)
 	play.sound_wanted.connect(Sounds.play)
 	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
@@ -471,6 +503,7 @@ func _on_progress(gourmet_points: int) -> void:
 func _decorate() -> void:
 	if editor != null:
 		return
+	_save_energy()
 	stop_play()
 	hud.decorate_button.disabled = true
 	hud.staff_button.disabled = true
@@ -523,7 +556,8 @@ func choose_staff() -> ChoicePanel:
 	var staff := staff_jobs()
 	var rows: Array = []
 	for index in staff.size():
-		rows.append({"label": "Employee %d" % (index + 1), "options": JOB_NAMES, "selected": staff[index]})
+		var percent := roundi(energy[index] / RestaurantPlay.MAX_WORK_TIME * 100.0) if index < energy.size() else 100
+		rows.append({"label": "Employee %d (%d%% energy)" % [index + 1, percent], "options": JOB_NAMES, "selected": staff[index]})
 	var panel: ChoicePanel = hud.open_choices("Staff", rows)
 	panel.chosen.connect(_on_staff_chosen)
 	return panel
@@ -534,6 +568,7 @@ func _on_staff_chosen(selections: Array[int]) -> void:
 	jobs = selections
 	_reopen()
 	_save(JOBS_KEY, jobs)
+	_save_energy()
 
 
 ## ponytail: a form of drop-downs with no preview, and every item is free to wear. The
@@ -580,6 +615,7 @@ func _save(key: String, value: Variant) -> void:
 func _sign_out() -> void:
 	Sounds.stop_music()
 	if Api.is_signed_in():
+		await _save_energy()
 		await Api.logout()
 	get_tree().change_scene_to_file(LOGIN_SCENE)
 
