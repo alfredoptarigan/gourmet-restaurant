@@ -23,6 +23,8 @@ const CUSTOMERS_PER_MINUTE_PER_DEMAND := 0.05
 const DEFAULT_DEMAND := 120.0
 const MIN_DEMAND := 40.0
 const MAX_DEMAND := 550.0
+## A perk's popularity floor is in tenths of demand.
+const DEMAND_PER_POPULARITY := 10.0
 const DEMAND_BONUS_HAPPY_CUSTOMER := 1.0
 const DEMAND_BONUS_UNHAPPY_CUSTOMER := -1.0
 ## Customers arrive this many seconds early or late, at random.
@@ -203,6 +205,8 @@ func _process(delta: float) -> void:
 
 func tick(delta: float) -> void:
 	spend_energy(room.energy, jobs, delta)
+	# An advert perk holds the popularity up.
+	demand = maxf(demand, room.perk_value("demand") * DEMAND_PER_POPULARITY)
 	for chef in chefs:
 		chef.tick(delta)
 	for waiter in waiters:
@@ -304,7 +308,9 @@ func _drop_trash(delta: float) -> void:
 	room.trash_timer -= delta
 	if room.trash_timer <= 0.0:
 		room.trash_timer = TRASH_APPEAR_RATE + rng.randf_range(-TRASH_APPEAR_JITTER, TRASH_APPEAR_JITTER)
-		add_random_trash()
+		# A cleaning perk keeps the restaurant clean while it lasts.
+		if room.perk_value("clean") == 0:
+			add_random_trash()
 
 
 ## WorldRestaurant.isTableFree.

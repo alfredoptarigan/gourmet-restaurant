@@ -126,6 +126,7 @@ func _check_room() -> void:
 	_check_awards(room)
 	_check_quiz_form(room)
 	_check_food_king(room)
+	_check_perks(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -569,8 +570,9 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 	room.give_energy(0, FULL * 2.0)
 	_expect(room.energy[1] == 3600.0 and room.energy[0] == FULL, "food restores energy, up to full")
 	var food_panel := room.choose_food()
+	food_panel.select(1, 1)
 	food_panel.finish()
-	_expect(room.hud.message_label.text == "Sign in to buy food." and room.energy[1] == 3600.0, "offline there are no coins to buy food with")
+	_expect(room.hud.message_label.text == "Sign in to buy perks." and room.energy[1] == 3600.0, "offline there are no coins to buy food with")
 
 	room.stop_play()
 	room.jobs = []
@@ -689,6 +691,22 @@ func _check_food_king(room: RestaurantRoom) -> void:
 	panel.queue_free()
 	room._food_king_sprite.free()
 	room.food_king_tile = Vector2i(-1, -1)
+
+
+func _check_perks(room: RestaurantRoom) -> void:
+	var play := room.play
+	play.set_process(false)
+	room._take_perks({"ok": true, "data": {"perks": {"clean": {"value": 1.0, "secondsLeft": 3600.0}, "demand": {"value": 30.0, "secondsLeft": 3600.0}}}})
+	_expect(room.perk_value("clean") == 1 and room.perk_value("gourmet") == 0, "perks in effect are known, others are not")
+	room.trash.clear()
+	room.trash_timer = 0.05
+	play.demand = RestaurantPlay.MIN_DEMAND
+	play.tick(SIMULATION_STEP)
+	_expect(room.trash.is_empty(), "a cleaning perk keeps trash away")
+	_expect(play.demand == 300.0, "an advert holds the popularity at 30, got %.1f" % (play.demand / 10.0))
+	room.perks = {"clean": {"value": 1, "until": 1.0}}
+	_expect(room.perk_value("clean") == 0, "an expired perk does nothing")
+	room.perks = {}
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

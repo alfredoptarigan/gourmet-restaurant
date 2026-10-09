@@ -6,7 +6,7 @@ import { requireAuth, type AuthEnv } from './auth.ts';
 import type { Sql } from './db.ts';
 import { ApiError, describeIssues, fail, ok, parseBody } from './http.ts';
 import { levelFor, rewardBetween } from './levels.ts';
-import { assertLayoutIsOwned, grantStarterItems, layoutSchema, STARTER_LAYOUT } from './shop.ts';
+import { activePerks, assertLayoutIsOwned, grantStarterItems, layoutSchema, STARTER_LAYOUT } from './shop.ts';
 
 const MAX_SAVE_BYTES = 256 * 1024;
 
@@ -140,8 +140,10 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
       // Dishes and extras draw on the same allowance, dishes first.
       const credited = Math.max(0, Math.min(dishes, allowance));
       const creditedExtras = Math.max(0, Math.min(extras, allowance - credited));
+      // The Hire Consultant perk multiplies the experience gained.
+      const multiplier = (await activePerks(transaction, userId)).gourmet?.value ?? 1;
       const gourmetPoints =
-        before.gourmet_points + credited * GOURMET_POINTS_PER_DISH + creditedExtras * GOURMET_POINTS_PER_EXTRA;
+        before.gourmet_points + (credited * GOURMET_POINTS_PER_DISH + creditedExtras * GOURMET_POINTS_PER_EXTRA) * multiplier;
       const level = levelFor(gourmetPoints);
       const levelUpReward = rewardBetween(levelFor(before.gourmet_points), level);
       const coins =

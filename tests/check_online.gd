@@ -71,6 +71,9 @@ func _check() -> void:
 	var food_king := await Api.fetch_food_king()
 	_expect(food_king["ok"] and food_king["data"].get("rewards") is Array, "the server says whether the Food King visits, got %s" % food_king)
 
+	var perks := await Api.fetch_perks()
+	_expect(perks["ok"] and perks["data"].get("perks") == {}, "a new player has no perks, got %s" % perks)
+
 	var snack := await Api.use_item(6000000)
 	_expect(snack["status"] == 409 and snack["error"] == "Not enough coins", "80 coin food cannot be bought with 2 coins, got %s" % snack)
 

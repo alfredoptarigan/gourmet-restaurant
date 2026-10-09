@@ -41,6 +41,9 @@ const MAIL_TYPE := "mailItem"
 const FOOD_KING_SPRITE := "GregPicnic"
 ## The perk group of the food that restores staff energy.
 const STAFF_FOOD_GROUP := "Employee"
+## The perk group of the things that help the whole restaurant for some hours.
+const RESTAURANT_PERK_GROUP := "Restaurant"
+const NOTHING := "(nothing)"
 ## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
 const RECIPE_LEVEL_NAMES: Array[String] = ["Simple", "Standard", "Classic", "Tasty", "Delicious", "Luxurious", "Gourmet", "Sensational", "Ultimate", "Royal"]
 const INGREDIENT_GROUP := "Ingredient"
@@ -112,6 +115,9 @@ var owned_music: Dictionary = {}
 var food_king_tile := Vector2i(-1, -1)
 var food_king_rewards: Array = []
 var _food_king_sprite: Sprite2D
+## Restaurant perks in effect: kind ("clean", "demand", "gourmet") -> {"value", "until"},
+## with `until` in unix seconds.
+var perks: Dictionary = {}
 ## Floor tiles painted over the base floor: tile -> floor item id.
 var floor_tiles: Dictionary = {}
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
@@ -177,6 +183,7 @@ func _ready() -> void:
 	start_play()
 	if Api.is_signed_in():
 		_look_for_food_king()
+		_take_perks(await Api.fetch_perks())
 
 
 ## The layout the server holds for this player, or the starting one when playing offline.
@@ -1028,33 +1035,68 @@ func _on_garden_chosen(selections: Array[int], plots: Dictionary) -> void:
 
 
 ## The food that restores staff energy, as the Employee perks describe it.
+## How strong a restaurant perk is right now, or 0 when it is not in effect.
+func perk_value(kind: String) -> int:
+	var perk: Dictionary = perks.get(kind, {})
+	return int(perk.get("value", 0)) if float(perk.get("until", 0.0)) > Time.get_unix_time_from_system() else 0
+
+
+func _take_perks(result: Dictionary) -> void:
+	if not result.get("ok", false) or not result["data"].get("perks") is Dictionary:
+		return
+	var now := Time.get_unix_time_from_system()
+	perks = {}
+	for kind: String in result["data"]["perks"]:
+		var perk: Dictionary = result["data"]["perks"][kind]
+		perks[kind] = {"value": int(perk.get("value", 0)), "until": now + float(perk.get("secondsLeft", 0))}
+
+
+static func describe_perk(perk: Dictionary) -> String:
+	return "%s, %s coins: %s" % [perk.get("name", ""), perk.get("cost", "?"), perk.get("text", "")]
+
+
+## The perk shop: food for one employee, and help for the whole restaurant.
 func choose_food() -> ChoicePanel:
 	var staff: Array = []
 	for index in energy.size():
 		staff.append("Employee %d (%d%% energy)" % [index + 1, roundi(energy[index] / RestaurantPlay.MAX_WORK_TIME * 100.0)])
-	var foods: Array = GameData.perk_items.get_items(STAFF_FOOD_GROUP).map(
-		func(food: Dictionary) -> String: return "%s, %s coins: %s" % [food.get("name", ""), food.get("cost", "?"), food.get("text", "")])
-	var panel: ChoicePanel = hud.open_choices("Feed your staff", [
-		{"label": "Who", "options": staff, "selected": 0}, {"label": "Food", "options": foods, "selected": 0}])
+	var foods: Array = [NOTHING] + GameData.perk_items.get_items(STAFF_FOOD_GROUP).map(describe_perk)
+	var helps: Array = [NOTHING] + GameData.perk_items.get_items(RESTAURANT_PERK_GROUP).map(describe_perk)
+	var panel: ChoicePanel = hud.open_choices("Perks", [
+		{"label": "Feed", "options": staff, "selected": 0},
+		{"label": "Food", "options": foods, "selected": 0},
+		{"label": "For the restaurant", "options": helps, "selected": 0},
+	])
 	panel.chosen.connect(_on_food_chosen)
 	return panel
 
 
 func _on_food_chosen(selections: Array[int]) -> void:
 	var foods := GameData.perk_items.get_items(STAFF_FOOD_GROUP)
-	if selections[0] < 0 or selections[0] >= energy.size() or selections[1] < 0 or selections[1] >= foods.size():
+	var helps := GameData.perk_items.get_items(RESTAURANT_PERK_GROUP)
+	var food: Dictionary = foods[selections[1] - 1] if selections[1] > 0 and selections[1] <= foods.size() else {}
+	var help: Dictionary = helps[selections[2] - 1] if selections[2] > 0 and selections[2] <= helps.size() else {}
+	if food.is_empty() and help.is_empty():
 		return
 	if not Api.is_signed_in():
-		hud.show_message("Sign in to buy food.")
+		hud.show_message("Sign in to buy perks.")
 		return
-	var food: Dictionary = foods[selections[1]]
-	var result := await Api.use_item(int(food["id"]))
-	if not result["ok"]:
-		hud.show_message(result["error"])
-		return
-	set_confirmed_coins(int(result["data"].get("coins", 0)))
-	give_energy(selections[0], float(food.get("workTime", 0)))
-	_save_energy()
+	if not food.is_empty() and selections[0] >= 0 and selections[0] < energy.size():
+		var fed := await Api.use_item(int(food["id"]))
+		if not fed["ok"]:
+			hud.show_message(fed["error"])
+			return
+		set_confirmed_coins(int(fed["data"].get("coins", 0)))
+		give_energy(selections[0], float(food.get("workTime", 0)))
+		_save_energy()
+	if not help.is_empty():
+		var helped := await Api.use_item(int(help["id"]))
+		if not helped["ok"]:
+			hud.show_message(helped["error"])
+			return
+		set_confirmed_coins(int(helped["data"].get("coins", 0)))
+		_take_perks({"ok": true, "data": {"perks": helped["data"].get("perks", {})}})
+		hud.show_message("%s is working for your restaurant." % help.get("name", ""))
 
 
 ## GameUserEmployee.addPerk: food tops an employee's energy up, to no more than full.

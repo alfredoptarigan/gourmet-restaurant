@@ -67,7 +67,8 @@ func set_gourmet_points(points: int) -> void:
 
 ## A closed restaurant lets no customers in: it needs a chef and a waiter with energy left.
 func set_demand(demand: float, closed: bool = false) -> void:
-	demand_label.text = "Popularity: %d%s" % [roundi(demand), " (closed: staff need rest)" if closed else ""]
+	# A tenth of the demand is the popularity shown (DemandReward: a value of 1 is 0.1 popularity).
+	demand_label.text = "Popularity: %.1f%s" % [demand / 10.0, " (closed: staff need rest)" if closed else ""]
 
 
 func set_signed_in(signed_in: bool) -> void:

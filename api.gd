@@ -142,6 +142,11 @@ func claim_food_king(choice: int) -> Dictionary:
 	return await _request(HTTPClient.METHOD_POST, "/foodking/claim", {"choice": choice})
 
 
+## The restaurant perks in effect: kind -> {"value", "secondsLeft"}.
+func fetch_perks() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/shop/perks")
+
+
 ## Pays for something that is used up at once, like food for the staff.
 func use_item(item_id: int) -> Dictionary:
 	return await _trade("/shop/use", item_id)

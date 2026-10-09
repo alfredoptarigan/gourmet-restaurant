@@ -116,6 +116,14 @@ export async function assertLayoutIsOwned(sql: Sql | postgres.TransactionSql, us
 
 const itemSchema = z.strictObject({ itemId: z.number().int().min(1) });
 
+/** The restaurant perks in effect: kind -> how strong, and how many seconds are left. */
+export async function activePerks(sql: Sql | postgres.TransactionSql, userId: string) {
+  const rows = await sql<{ kind: string; value: number; left: number }[]>`
+    select kind, value, extract(epoch from until - now())::float8 as left
+    from active_perks where user_id = ${userId} and until > now()`;
+  return Object.fromEntries(rows.map((row) => [row.kind, { value: row.value, secondsLeft: Math.round(row.left) }]));
+}
+
 export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
   const routes = new Hono<AuthEnv>();
   routes.use(requireAuth(sql));
@@ -190,10 +198,21 @@ export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
         throw new ApiError(409, 'Not enough coins');
       }
       await addAward(transaction, userId, Award.SPEND_COIN, item.cost);
+      // A perk bought while the same kind is in effect adds its hours on top.
+      if (item.perk) {
+        await transaction`
+          insert into active_perks (user_id, kind, value, until)
+          values (${userId}, ${item.perk.kind}, ${item.perk.value}, now() + make_interval(hours => ${item.perk.hours}))
+          on conflict (user_id, kind) do update
+          set value = greatest(active_perks.value, excluded.value),
+              until = greatest(active_perks.until, now()) + make_interval(hours => ${item.perk.hours})`;
+      }
       return Number(paid[0].coins);
     });
-    return ok(c, { coins });
+    return ok(c, { coins, perks: await activePerks(sql, userId) });
   });
+
+  routes.get('/perks', async (c) => ok(c, { perks: await activePerks(sql, c.get('userId')) }));
 
   routes.post('/sell', async (c) => {
     const { itemId } = await parseBody(c, itemSchema);

@@ -79,7 +79,7 @@ text = "Staff"
 [node name="Feed" type="Button" parent="Hud/Bar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Feed"
+text = "Perks"
 
 [node name="Decorate" type="Button" parent="Hud/Bar"]
 unique_name_in_owner = true

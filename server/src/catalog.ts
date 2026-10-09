@@ -2,7 +2,16 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { describeIssues } from './http.ts';
 
-export type CatalogItem = { cost: number; purchasable: boolean; unlockLevel: number; consumable: boolean; outdoor: boolean };
+export type PerkKind = 'clean' | 'demand' | 'gourmet';
+export type CatalogItem = {
+  cost: number;
+  purchasable: boolean;
+  unlockLevel: number;
+  consumable: boolean;
+  outdoor: boolean;
+  /** A restaurant perk: what it does, how strongly, and for how many hours. */
+  perk?: { kind: PerkKind; value: number; hours: number };
+};
 /**
  * Item id -> its price in coins, whether the shop sells it for coins to keep, from which
  * level, and whether it is instead used up on the spot (food that restores staff energy).
@@ -22,6 +31,10 @@ const groupsSchema = z.array(
         unlockLevel: z.string().regex(/^\d+$/).optional(),
         workTime: z.string().regex(/^\d+$/).optional(),
         types: z.array(z.string()).optional(),
+        duration: z.string().regex(/^\d+$/).optional(),
+        clean: z.string().regex(/^\d+$/).optional(),
+        demand: z.string().regex(/^\d+$/).optional(),
+        gourmet: z.string().regex(/^\d+$/).optional(),
       }),
     ),
   }),
@@ -38,13 +51,17 @@ export function parseCatalog(groups: unknown): Catalog {
       const cost = Number(item.cost);
       // Awards cost nothing, some items are cash-only, and hidden items are never sold.
       const forCoins = cost > 0 && Number(item.cash ?? '0') === 0 && item.invisible !== true;
-      const consumable = forCoins && Number(item.workTime ?? '0') > 0;
+      const hours = Number(item.duration ?? '0');
+      const kind = (['clean', 'demand', 'gourmet'] as const).find((key) => item[key] !== undefined);
+      const perk = hours > 0 && kind ? { kind, value: Number(item[kind]), hours } : undefined;
+      const consumable = forCoins && (Number(item.workTime ?? '0') > 0 || perk !== undefined);
       catalog.set(Number(item.id), {
         cost,
         purchasable: forCoins && !consumable,
         unlockLevel: Number(item.unlockLevel ?? '0'),
         consumable,
         outdoor: [...(group.types ?? []), ...(item.types ?? [])].includes('outdoor'),
+        ...(perk ? { perk } : {}),
       });
     }
   }

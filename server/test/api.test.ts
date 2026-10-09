@@ -27,6 +27,7 @@ const RUBY_JUICE = 6000000;
 const catalog: Catalog = parseCatalog([
   { items: [{ id: '3900000', cost: '2500', unlockLevel: '10' }] },
   { items: [{ id: '6000000', cost: '80', workTime: '3600' }] },
+  { items: [{ id: '6010005', cost: '400', duration: '24', gourmet: '2' }, { id: '6010000', cost: '50', duration: '6', clean: '1' }] },
   { name: 'Chair', items: [{ id: String(CHAIR), cost: '200', cash: '0' }] },
   {
     name: 'Decoration',
@@ -448,7 +449,7 @@ test('food for the staff is paid for and used up, never owned', async () => {
   const chair = await call(app, 'POST', '/shop/use', { token, body: { itemId: CHAIR } });
 
   assert.equal(used.status, 200);
-  assert.deepEqual(used.body.data, { coins: 20 });
+  assert.deepEqual(used.body.data, { coins: 20, perks: {} });
   assert.equal(again.status, 409);
   assert.equal(bought.status, 404);
   assert.equal(chair.status, 404);
@@ -646,6 +647,24 @@ test('when the Food King visits, one of his three rewards can be claimed once', 
   assert.equal(claims[0].status, 200);
   assert.deepEqual(claims[0].body.data.reward, visit.body.data.rewards[0]);
   assert.deepEqual(claims.slice(1).map((claim) => claim.status), [409, 409]);
+});
+
+test('a restaurant perk lasts its hours, stacks, and the consultant doubles experience', async () => {
+  const token = await register();
+  await giveCoins(1000);
+
+  const clean = await call(app, 'POST', '/shop/use', { token, body: { itemId: 6010000 } });
+  await call(app, 'POST', '/shop/use', { token, body: { itemId: 6010000 } });
+  await call(app, 'POST', '/shop/use', { token, body: { itemId: 6010005 } });
+  const perks = await call(app, 'GET', '/shop/perks', { token });
+  await ageEarnings(60);
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 3 } });
+
+  assert.equal(clean.body.data.perks.clean.value, 1);
+  // Two six-hour cleans make twelve hours.
+  assert.ok(Math.abs(perks.body.data.perks.clean.secondsLeft - 12 * 3600) < 5);
+  assert.equal(perks.body.data.perks.gourmet.value, 2);
+  assert.equal(report.body.data.gourmetPoints, 6);
 });
 
 test('an item with an unlock level cannot be bought before that level', async () => {
