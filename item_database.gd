@@ -30,6 +30,14 @@ func get_items(group_name: String) -> Array:
 	return get_group(group_name).get("items", [])
 
 
+func get_item_from_group(item_name: String, group_name: String) -> Dictionary:
+	for item: Dictionary in get_items(group_name):
+		if item.get("name") == item_name:
+			return item
+	push_warning("ItemDatabase: item %s not found in group %s" % [item_name, group_name])
+	return {}
+
+
 func get_item(item_name: String) -> Dictionary:
 	for group: Dictionary in groups:
 		for item: Dictionary in group["items"]:

@@ -1,6 +1,6 @@
 """Render the named symbols of an asset SWF to sprite sheets for Godot.
 
-Run: python3 tools/extract_sprites.py [group ...]      (default: indoor)
+Run: python3 tools/extract_sprites.py [group ...]      (default: indoor avatar)
 
 For raw/<group>_asset.swf this writes
   assets/sprites/<group>/<ClassName>.png   every timeline frame of the symbol, in a grid
@@ -28,7 +28,7 @@ from pathlib import Path
 from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_GROUPS = ['indoor']
+DEFAULT_GROUPS = ['indoor', 'avatar']
 DEFAULT_JAVA = '/opt/homebrew/opt/openjdk/bin/java'
 DEFAULT_FFDEC_JAR = '~/.local/opt/jpexs/ffdec.jar'
 

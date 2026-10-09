@@ -66,6 +66,29 @@ func _check_room() -> void:
 	await get_tree().process_frame
 	_expect(room.get_node("Floor").get_child_count() == 64, "an 8x8 room has 64 floor tiles")
 	_expect(room.get_node("Walls").get_child_count() == 16, "two 8-tile walls have 16 wallpaper pieces")
-	_expect(room.get_node("Items").get_child_count() == RestaurantRoom.DEFAULT_ITEMS.size(),
+	# The items layer also holds the placeholder avatar.
+	_expect(room.get_node("Items").get_child_count() == RestaurantRoom.DEFAULT_ITEMS.size() + 1,
 			"every default item should be placed, got %d" % room.get_node("Items").get_child_count())
+	_expect(RestaurantRoom.tile_center(Vector2i(0, 0)) == Vector2(0, 20), "a tile's centre is half a tile down")
+	_check_avatar(room.get_node_or_null("Items/Avatar"))
 	room.queue_free()
+
+
+func _check_avatar(avatar: Avatar) -> void:
+	_expect(avatar != null, "the room should contain an avatar")
+	if avatar == null:
+		return
+	var hidden := avatar.find_child("hat01", true, false) as Node3D
+	var shown := avatar.find_child("shirt01", true, false) as Node3D
+	_expect(hidden != null and not hidden.visible, "a hat the avatar does not wear should be hidden")
+	_expect(shown != null and shown.visible, "the shirt the avatar wears should be visible")
+	avatar.set_direction(9)
+	_expect(avatar.direction == 1, "direction 9 should wrap to 1")
+	avatar.play(Avatar.Animations.WAITOR_WALK)
+	var tray := avatar.find_child("tray", true, false) as Node3D
+	_expect(tray != null and tray.visible, "the tray should show while a waiter walks")
+	avatar.play(Avatar.Animations.IDLE)
+	_expect(tray != null and not tray.visible, "the tray should hide when idle")
+	var order: Array[Dictionary] = [{"priority": 2, "id": "a"}, {"priority": 0, "id": "b"}, {"priority": 2, "id": "c"}]
+	var sorted := Avatar.sort_by_priority(order).map(func(entry: Dictionary) -> String: return entry["id"])
+	_expect(sorted == ["b", "c", "a"], "texture pieces sort by priority, later equals first, got %s" % [sorted])

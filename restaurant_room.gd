@@ -1,7 +1,7 @@
 class_name RestaurantRoom
 extends Node2D
 ## A new player's restaurant, drawn from the original data and art. Static for now:
-## no actors, no editing, no walls beyond the wallpaper.
+## one idle character, no editing, no walls beyond the wallpaper.
 
 const TILE_WIDTH := 80
 const TILE_HEIGHT := 40
@@ -35,6 +35,19 @@ const DEFAULT_ITEMS: Array[Dictionary] = [
 	{"name": "DelicateBush", "tile": Vector2i(7, 7), "rotation": 0},
 ]
 
+## GameUser.DEFAULT_MALE_AVATAR_ITEMS plus the free face pieces the original picks by user id.
+const PLACEHOLDER_AVATAR_ITEMS: Array[Dictionary] = [
+	{"name": "Classic", "group": "Hair"},
+	{"name": "Blue Fish Shirt", "group": "Shirt"},
+	{"name": "Classic Pants", "group": "Pants"},
+	{"name": "Simple Eyes", "group": "Eyes"},
+	{"name": "Happy Mouth", "group": "Mouth"},
+	{"name": "Classic EyeBrow", "group": "Eyebrows"},
+]
+const PLACEHOLDER_AVATAR_TILE := Vector2i(4, 7)
+const PLACEHOLDER_SKIN_COLOUR := Color("ffdbc0")
+const PLACEHOLDER_HAIR_COLOUR := Color("5a3a22")
+
 @onready var floor_layer: Node2D = $Floor
 @onready var wall_layer: Node2D = $Walls
 @onready var item_layer: Node2D = $Items
@@ -47,6 +60,11 @@ static func tile_to_screen(tile: Vector2i) -> Vector2:
 	return Vector2((tile.x - tile.y) * TILE_WIDTH / 2.0, (tile.x + tile.y) * TILE_HEIGHT / 2.0)
 
 
+## Where a character standing on the tile puts its feet: the middle of the diamond.
+static func tile_center(tile: Vector2i) -> Vector2:
+	return tile_to_screen(tile) + Vector2(0, TILE_HEIGHT / 2.0)
+
+
 ## WorldRestaurant.getTileIndex: items on a higher index are drawn in front.
 static func tile_draw_order(tile: Vector2i) -> int:
 	return tile.y * MAX_NUM_TILES_X + tile.x
@@ -56,6 +74,7 @@ func _ready() -> void:
 	_build_floor()
 	_build_wallpaper()
 	_build_items()
+	_build_avatar()
 
 
 func _place(layer: Node2D, sprite_name: String, tile: Vector2i, frame: int) -> void:
@@ -96,3 +115,13 @@ func _build_items() -> void:
 			push_error("RestaurantRoom: item %s has no className" % entry["name"])
 			continue
 		_place(item_layer, sprite_name, entry["tile"], entry["rotation"])
+
+
+func _build_avatar() -> void:
+	# ponytail: a stand-in until actors exist. It is added last, so it draws over every item;
+	# real actors must be sorted into the item order by tile.
+	var avatar := Avatar.new()
+	avatar.name = "Avatar"
+	avatar.position = tile_center(PLACEHOLDER_AVATAR_TILE)
+	item_layer.add_child(avatar)
+	avatar.setup(PLACEHOLDER_AVATAR_ITEMS, PLACEHOLDER_SKIN_COLOUR, PLACEHOLDER_HAIR_COLOUR)

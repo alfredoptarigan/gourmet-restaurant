@@ -10,7 +10,7 @@ playable yet.
 The original game's art, sound, and data files are not distributed here. To run the
 project you need your own copy of the original resource files in `raw/` (git-ignored):
 
-- `indoor_asset.swf` (more `*_asset.swf` files are needed as work progresses)
+- `indoor_asset.swf`, `avatar_asset.swf` (more `*_asset.swf` files are needed as work progresses)
 - `front.bin`, `avatar.bin`, `restaurant.bin`, `perk.bin`, `ingredient.bin`, `recipe.bin`,
   `quiz.bin`, `appointment.bin`, `challenge.bin`, `lang_en.bin`, `lang_fr.bin`, `model.bin`
 - `newsletter.xml`
@@ -25,7 +25,7 @@ Requirements: Godot 4.7, Python 3.9+ with Pillow, Java, and
 
 ```bash
 python3 tools/extract_data.py      # raw/*.bin -> data/*.json, assets/avatar/avatar.dae
-python3 tools/extract_sprites.py   # raw/indoor_asset.swf -> assets/sprites/indoor/
+python3 tools/extract_sprites.py   # raw/{indoor,avatar}_asset.swf -> assets/sprites/
 ```
 
 `extract_sprites.py` reads the `JAVA` and `FFDEC_JAR` environment variables if Java or JPEXS
