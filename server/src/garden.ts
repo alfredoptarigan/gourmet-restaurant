@@ -40,27 +40,45 @@ function standing(row: PlotRow) {
 
 const plotBody = z.strictObject({ plot: z.number().int().min(0).max(MAX_PLOTS - 1) });
 
+/** A player's planted plots as they stand now. */
+export async function plotsOf(sql: Sql, userId: string) {
+  const rows = await sql<PlotRow[]>`
+    select plot, ingredient_id, grown_seconds,
+           extract(epoch from now() - checked_at)::float8 as since,
+           extract(epoch from wet_until - checked_at)::float8 as wet_for
+    from garden_plots where user_id = ${userId} order by plot`;
+  return rows.map(standing);
+}
+
+/**
+ * GardenPlot.water: banks the growth so far and gives the soil one more watering, up to the
+ * most it holds. False if nothing grows in the plot. Friends may water each other's plots.
+ */
+export async function waterPlot(sql: Sql, userId: string, plot: number): Promise<boolean> {
+  const current = (await plotsOf(sql, userId)).find((entry) => entry.plot === plot);
+  if (!current) {
+    return false;
+  }
+  const wet = Math.min(MAX_WET_SECONDS, current.wetSeconds + SECONDS_PER_WATER);
+  await sql`
+    update garden_plots
+    set grown_seconds = ${current.grownSeconds}, checked_at = now(), wet_until = now() + make_interval(secs => ${wet})
+    where user_id = ${userId} and plot = ${plot}`;
+  return true;
+}
+
 export function gardenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
   const routes = new Hono<AuthEnv>();
   routes.use(requireAuth(sql));
   const seeds = [...cookbook.plantable];
 
-  async function plotsOf(userId: string) {
-    const rows = await sql<PlotRow[]>`
-      select plot, ingredient_id, grown_seconds,
-             extract(epoch from now() - checked_at)::float8 as since,
-             extract(epoch from wet_until - checked_at)::float8 as wet_for
-      from garden_plots where user_id = ${userId} order by plot`;
-    return rows.map(standing);
-  }
-
   async function garden(userId: string) {
     const rows = await sql<{ gourmet_points: number }[]>`select gourmet_points from profiles where user_id = ${userId}`;
-    return { plotCount: plotsFor(levelFor(rows[0]?.gourmet_points ?? 0)), plots: await plotsOf(userId) };
+    return { plotCount: plotsFor(levelFor(rows[0]?.gourmet_points ?? 0)), plots: await plotsOf(sql, userId) };
   }
 
   async function plotOf(userId: string, plot: number) {
-    return (await plotsOf(userId)).find((entry) => entry.plot === plot);
+    return (await plotsOf(sql, userId)).find((entry) => entry.plot === plot);
   }
 
   routes.get('/', async (c) => ok(c, await garden(c.get('userId'))));
@@ -96,16 +114,9 @@ export function gardenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
   routes.post('/water', async (c) => {
     const { plot } = await parseBody(c, plotBody);
     const userId = c.get('userId');
-    const current = await plotOf(userId, plot);
-    if (!current) {
+    if (!(await waterPlot(sql, userId, plot))) {
       throw new ApiError(409, 'Nothing grows there');
     }
-    // Growth so far is banked, and the wetness left gains one watering, up to the most the soil holds.
-    const wet = Math.min(MAX_WET_SECONDS, current.wetSeconds + SECONDS_PER_WATER);
-    await sql`
-      update garden_plots
-      set grown_seconds = ${current.grownSeconds}, checked_at = now(), wet_until = now() + make_interval(secs => ${wet})
-      where user_id = ${userId} and plot = ${plot}`;
     return ok(c, await garden(userId));
   });
 

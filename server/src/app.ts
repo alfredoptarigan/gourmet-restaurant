@@ -11,6 +11,7 @@ import { profileRoutes } from './profile.ts';
 import { quizRoutes, type Question } from './quiz.ts';
 import { rateLimit } from './rate-limit.ts';
 import { shopRoutes } from './shop.ts';
+import { mailRoutes, socialRoutes } from './social.ts';
 
 const DEFAULT_AUTH_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
@@ -54,6 +55,8 @@ export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, quiz = [], 
   app.route('/garden', gardenRoutes(sql, cookbook));
   app.route('/awards', awardRoutes(sql));
   app.route('/quiz', quizRoutes(sql, quiz));
+  app.route('/friends', socialRoutes(sql));
+  app.route('/mail', mailRoutes(sql));
   app.route('/foodking', foodKingRoutes(sql, foodKingRewards, foodKingChance));
 
   return app;

@@ -23,7 +23,7 @@ const COINS_PER_CASH_PRICE = new Map([
 // The three dishes and seven ingredients a new player starts with (the reference server's
 // STARTER_RECIPES, and the ingredients flagged `initial` in ingredient.json with that count).
 const STARTER_RECIPES = [5000008, 5100003, 5200000];
-const STARTER_INGREDIENTS = new Map([
+export const STARTER_INGREDIENTS = new Map([
   [4000005, 1],
   [4000013, 2],
   [4000031, 1],

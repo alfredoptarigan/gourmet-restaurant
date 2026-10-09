@@ -667,6 +667,99 @@ test('a restaurant perk lasts its hours, stacks, and the consultant doubles expe
   assert.equal(report.body.data.gourmetPoints, 6);
 });
 
+async function befriend(one: string, other: string, otherName: string, oneName: string): Promise<void> {
+  await call(app, 'POST', '/friends/request', { token: one, body: { username: otherName } });
+  await call(app, 'POST', '/friends/request', { token: other, body: { username: oneName } });
+}
+
+test('a friend request is accepted by asking back, or by accepting it', async () => {
+  const anna = await register('chef_anna');
+  const budi = await register('chef_budi');
+  const citra = await register('chef_citra');
+
+  const asked = await call(app, 'POST', '/friends/request', { token: anna, body: { username: 'CHEF_BUDI' } });
+  const pending = await call(app, 'GET', '/friends', { token: budi });
+  const back = await call(app, 'POST', '/friends/request', { token: budi, body: { username: 'chef_anna' } });
+  await call(app, 'POST', '/friends/request', { token: citra, body: { username: 'chef_anna' } });
+  const citraId = (await call(app, 'GET', '/friends', { token: anna })).body.data.incoming[0].id;
+  const accepted = await call(app, 'POST', '/friends/accept', { token: anna, body: { userId: citraId } });
+  const list = await call(app, 'GET', '/friends', { token: anna });
+  const self = await call(app, 'POST', '/friends/request', { token: anna, body: { username: 'chef_anna' } });
+  const nobody = await call(app, 'POST', '/friends/request', { token: anna, body: { username: 'ghost' } });
+
+  assert.equal(asked.body.data.status, 'requested');
+  assert.deepEqual(pending.body.data.incoming.map((row: { username: string }) => row.username), ['chef_anna']);
+  assert.equal(back.body.data.status, 'friends');
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(list.body.data.friends.map((row: { username: string }) => row.username), ['chef_budi', 'chef_citra']);
+  assert.equal(list.body.data.friends[0].building.banner, 'My Restaurant');
+  assert.deepEqual(list.body.data.incoming, []);
+  assert.equal(self.status, 400);
+  assert.equal(nobody.status, 404);
+});
+
+test('only friends see a restaurant, visit it, and water its plots', async () => {
+  const anna = await register('chef_anna');
+  const budi = await register('chef_budi');
+  // User ids restart at 1 for every test, so the second player registered is 2.
+  const budiId = 2;
+
+  const stranger = await call(app, 'GET', `/friends/${budiId}/restaurant`, { token: anna });
+  await befriend(anna, budi, 'chef_budi', 'chef_anna');
+  const restaurant = await call(app, 'GET', `/friends/${budiId}/restaurant`, { token: anna });
+  const visit = await call(app, 'POST', `/friends/${budiId}/visit`, { token: anna });
+  const again = await call(app, 'POST', `/friends/${budiId}/visit`, { token: anna });
+  await giveCoins(2000);
+  await sql`update profiles set gourmet_points = 1000`;
+  await call(app, 'POST', '/garden/plant', { token: budi, body: { plot: 0 } });
+  const watered = await call(app, 'POST', `/friends/${budiId}/water`, { token: anna, body: { plot: 0 } });
+  const twice = await call(app, 'POST', `/friends/${budiId}/water`, { token: anna, body: { plot: 0 } });
+  const empty = await call(app, 'POST', `/friends/${budiId}/water`, { token: anna, body: { plot: 1 } });
+  const garden = await call(app, 'GET', '/garden', { token: budi });
+
+  assert.equal(stranger.status, 403);
+  assert.equal(restaurant.body.data.username, 'chef_budi');
+  assert.equal(restaurant.body.data.layout.items.length, 16);
+  assert.deepEqual([visit.body.data.counted, again.body.data.counted], [true, false]);
+  assert.equal(watered.body.data.coins, 2001);
+  assert.equal(twice.status, 409);
+  assert.equal(empty.status, 409);
+  assert.equal(garden.body.data.plots[0].wetSeconds, 6 * 3600);
+});
+
+test('friends send gifts, ingredients, and messages that are opened from the mail', async () => {
+  const anna = await register('chef_anna');
+  const budi = await register('chef_budi');
+  await befriend(anna, budi, 'chef_budi', 'chef_anna');
+  await call(app, 'GET', '/kitchen', { token: anna });
+  await call(app, 'GET', '/kitchen', { token: budi });
+  const budiId = 2;
+
+  const gift = await call(app, 'POST', '/mail/send', { token: anna, body: { to: budiId, kind: 'gift' } });
+  const secondGift = await call(app, 'POST', '/mail/send', { token: anna, body: { to: budiId, kind: 'gift' } });
+  const salad = await call(app, 'POST', '/mail/send', { token: anna, body: { to: budiId, kind: 'ingredient', itemId: SALAD } });
+  const note = await call(app, 'POST', '/mail/send', { token: anna, body: { to: budiId, kind: 'message', text: 'Hello!' } });
+  const missing = await call(app, 'POST', '/mail/send', { token: anna, body: { to: budiId, kind: 'ingredient', itemId: 4000000 } });
+  const inbox = await call(app, 'GET', '/mail', { token: budi });
+  for (const mail of inbox.body.data.mail) {
+    await call(app, 'POST', `/mail/${mail.id}/open`, { token: budi });
+  }
+  const reopened = await call(app, 'POST', `/mail/${inbox.body.data.mail[0].id}/open`, { token: budi });
+  const annaKitchen = await call(app, 'GET', '/kitchen', { token: anna });
+  const budiKitchen = await call(app, 'GET', '/kitchen', { token: budi });
+
+  assert.deepEqual([gift.status, secondGift.status, salad.status, note.status, missing.status], [200, 409, 200, 200, 409]);
+  assert.deepEqual(inbox.body.data.mail.map((mail: { kind: string; from: string }) => `${mail.kind}:${mail.from}`), [
+    'gift:chef_anna',
+    'ingredient:chef_anna',
+    'message:chef_anna',
+  ]);
+  assert.equal(reopened.status, 404);
+  assert.equal(annaKitchen.body.data.ingredients[SALAD], 1);
+  // Two starting salads, the one sent, and maybe the gift.
+  assert.ok(budiKitchen.body.data.ingredients[SALAD] >= 3);
+});
+
 test('an item with an unlock level cannot be bought before that level', async () => {
   const token = await register();
   await giveCoins(5000);
