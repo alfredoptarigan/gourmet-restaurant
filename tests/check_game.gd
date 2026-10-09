@@ -121,6 +121,7 @@ func _check_room() -> void:
 	_check_staff_energy(room)
 	_check_recipes(room)
 	_check_garden_form(room)
+	_check_stacking_and_painting(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -602,6 +603,33 @@ func _check_garden_form(room: RestaurantRoom) -> void:
 	panel.queue_free()
 	room.open_garden()
 	_expect(room.hud.message_label.text == "Sign in to garden.", "offline there is no garden")
+
+
+func _check_stacking_and_painting(room: RestaurantRoom) -> void:
+	const CHAIR := 3040001
+	var stackable := 0
+	for group: Dictionary in GameData.interior_items.groups:
+		for config: Dictionary in group["items"]:
+			if stackable == 0 and "stackable" in GameData.interior_items.get_types_by_id(int(config["id"])) and room.footprint_of(int(config["id"]), 0) == Vector2i.ONE:
+				stackable = int(config["id"])
+	var table := room.item_at(Vector2i(3, 3))
+	_expect(stackable != 0 and room.can_place(stackable, table.tile, 0), "a stackable decoration fits on a table")
+	_expect(not room.can_place(CHAIR, table.tile, 0), "a chair does not")
+	var decoration := room.place_item(stackable, table.tile, 0)
+	_expect(room.surface_under(decoration) == table and decoration.sprite.position.y < table.sprite.position.y, "it stands on the table top")
+	_expect(not room.can_place(stackable, table.tile, 0), "only one thing fits on a table")
+	_expect(not room.play.is_table_free(table) and room.item_at(table.tile) == table, "a decorated table takes no orders but is still the table")
+	room.remove_item(decoration)
+	_expect(room.play.is_table_free(table), "without it the table is free again")
+
+	var wood: int = room.floor_id
+	var other_floor := int(GameData.interior_items.get_items("Floor Tile")[2]["id"])
+	room.paint_floor(Vector2i(4, 4), other_floor)
+	_expect(room.floor_at(Vector2i(4, 4)) == other_floor and room.floor_at(Vector2i(5, 5)) == wood, "painting covers one tile")
+	_expect(room.to_layout()["tiles"] == [{"id": other_floor, "x": 4, "y": 4}], "the layout lists the painted tile")
+	room.paint_floor(Vector2i(4, 4), wood)
+	_expect(not room.to_layout().has("tiles"), "painting the base floor back leaves no override")
+	_expect(not room.can_paint(Vector2i(0, 3)) and room.can_paint(Vector2i(1, 1)), "walls are not painted")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

@@ -60,6 +60,7 @@ func start(restaurant_room: RestaurantRoom) -> void:
 static func _count(layout: Dictionary) -> Dictionary:
 	var counts := {}
 	var ids: Array = layout["items"].map(func(entry: Dictionary) -> int: return int(entry["id"]))
+	ids.append_array(layout.get("tiles", []).map(func(entry: Dictionary) -> int: return int(entry["id"])))
 	for item_id: int in ids + [int(layout["floor"]), int(layout["wallpaper"])]:
 		counts[item_id] = counts.get(item_id, 0) + 1
 	return counts
@@ -89,6 +90,9 @@ func hold(item_id: int, turns: int = 0) -> void:
 
 ## Picks up a placed item.
 func pick_up(item: RoomItem) -> void:
+	if room.items_at(item.tile).size() > 1 and room.surface_under(item) == null:
+		_say("Take what stands on it off first.")
+		return
 	var item_id := item.item_id
 	var turns := item.turns
 	room.remove_item(item)
@@ -97,11 +101,31 @@ func pick_up(item: RoomItem) -> void:
 
 ## Puts the held item on a tile. False, and nothing changes, if it does not fit there.
 func place_at(tile: Vector2i) -> bool:
+	if is_holding() and GameData.interior_items.get_group_name_by_id(held_id) == FLOOR_GROUP:
+		return _paint_at(tile)
 	if not is_holding() or not room.can_place(held_id, tile, _turns_at(tile)):
 		return false
 	room.place_item(held_id, tile, _turns_at(tile))
 	Sounds.play(PLACE_SOUND)
 	_release()
+	return true
+
+
+## A held floor item paints the tile; the tile's old floor goes back to the inventory. The
+## brush stays in hand while copies are left.
+func _paint_at(tile: Vector2i) -> bool:
+	if not room.can_paint(tile):
+		return false
+	if room.floor_at(tile) != held_id:
+		var painting := held_id
+		held_id = 0
+		room.paint_floor(tile, painting)
+		held_id = painting
+		Sounds.play(PLACE_SOUND)
+	if available(held_id) <= 0:
+		_release()
+	else:
+		_refresh_list()
 	return true
 
 
@@ -234,8 +258,8 @@ func _release() -> void:
 func _use(item_id: int) -> void:
 	match GameData.interior_items.get_group_name_by_id(item_id):
 		FLOOR_GROUP:
-			room.set_floor(item_id)
-			_refresh_list()
+			hold(item_id)
+			_say("Click floor tiles to paint them.")
 		WALLPAPER_GROUP:
 			room.set_wallpaper(item_id)
 			_refresh_list()

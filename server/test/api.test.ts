@@ -20,6 +20,7 @@ const FANCY_LAMP = 3020099;
 const AWARD = 3100000;
 const CASH_ONLY = 3020098;
 const OUTDOOR_AREA = 3900000;
+const WOOD_FLOOR_FOR_TEST = 3050001;
 const RUBY_JUICE = 6000000;
 const catalog: Catalog = parseCatalog([
   { items: [{ id: '3900000', cost: '2500', unlockLevel: '10' }] },
@@ -559,6 +560,31 @@ test('an item with an unlock level cannot be bought before that level', async ()
   assert.equal(early.body.error, 'Reach level 10 to buy this');
   assert.equal(later.status, 200);
   assert.equal(later.body.data.coins, 2500);
+});
+
+test('every painted floor tile uses one owned floor item', async () => {
+  const token = await register();
+  const profile = await call(app, 'GET', '/profile', { token });
+  const layout = profile.body.data.data.layout;
+  const floor = layout.floor;
+
+  const one = await call(app, 'PUT', '/profile', {
+    token,
+    body: { version: 0, data: { layout: { ...layout, floor: WOOD_FLOOR_FOR_TEST, tiles: [{ id: floor, x: 2, y: 2 }] } } },
+  });
+  const twice = await call(app, 'PUT', '/profile', {
+    token,
+    body: { version: 0, data: { layout: { ...layout, tiles: [{ id: floor, x: 2, y: 2 }, { id: floor, x: 2, y: 2 }] } } },
+  });
+  const unowned = await call(app, 'PUT', '/profile', {
+    token,
+    body: { version: 0, data: { layout: { ...layout, tiles: [{ id: floor, x: 2, y: 2 }] } } },
+  });
+
+  assert.equal(one.status, 409);
+  assert.equal(twice.status, 400);
+  // The base floor already uses the only one owned.
+  assert.equal(unowned.status, 409);
 });
 
 test('a new player owns the furniture of the starting restaurant', async () => {

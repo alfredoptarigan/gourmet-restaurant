@@ -21,10 +21,22 @@ const placedItemSchema = z.strictObject({
   rotation: z.number().int().min(0).max(3),
 });
 
+const paintedTileSchema = z.strictObject({
+  id: z.number().int().min(1),
+  x: z.number().int().min(0).max(MAX_TILE_X),
+  y: z.number().int().min(0).max(MAX_TILE_Y),
+});
+
 export const layoutSchema = z.strictObject({
   items: z.array(placedItemSchema).max(MAX_LAYOUT_ITEMS),
   floor: z.number().int().min(1),
   wallpaper: z.number().int().min(1),
+  // Floor tiles painted over the base floor, one owned floor item each.
+  tiles: z
+    .array(paintedTileSchema)
+    .max((MAX_TILE_X + 1) * (MAX_TILE_Y + 1))
+    .refine((tiles) => new Set(tiles.map((tile) => `${tile.x},${tile.y}`)).size === tiles.length, 'a tile is painted twice')
+    .optional(),
 });
 
 export type Layout = z.infer<typeof layoutSchema>;
@@ -65,10 +77,11 @@ export const STARTER_LAYOUT: Layout = {
   wallpaper: BLUE_WALLPAPER,
 };
 
-/** How many of each item a layout uses, counting its floor and its wallpaper once each. */
+/** How many of each item a layout uses: its floor and wallpaper once each, and every painted tile. */
 export function countPlaced(layout: Layout): Map<number, number> {
   const placed = new Map<number, number>();
-  for (const id of [...layout.items.map((item) => item.id), layout.floor, layout.wallpaper]) {
+  const painted = (layout.tiles ?? []).map((tile) => tile.id);
+  for (const id of [...layout.items.map((item) => item.id), layout.floor, layout.wallpaper, ...painted]) {
     placed.set(id, (placed.get(id) ?? 0) + 1);
   }
   return placed;

@@ -19,6 +19,8 @@ const NORTH_WALL_ROTATION := 1
 const DOOR_TYPE := "doorItem"
 const TABLE_TYPE := "tableItem"
 const CHAIR_TYPE := "chairItem"
+const STACKABLE_TYPE := "stackable"
+const SURFACE_TYPE := "surface"
 const WALL_DECORATION_TYPE := "wallDecorationItem"
 const CHAIR_OVERLAY_SUFFIX := "Overlay"
 const EMOTION_SPRITE := "Emotions"
@@ -95,6 +97,8 @@ var level := 1
 var floor_id := 0
 var wallpaper_id := 0
 var outside_size := Vector2i.ZERO
+## Floor tiles painted over the base floor: tile -> floor item id.
+var floor_tiles: Dictionary = {}
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
 var jobs: Array[int] = []
 ## The working time each employee has left, in seconds (RestaurantPlay.MAX_WORK_TIME when
@@ -281,6 +285,10 @@ func build(layout: Dictionary) -> void:
 	grid.set_outside(outside_size)
 	floor_id = int(layout.get("floor", STARTER_LAYOUT["floor"]))
 	wallpaper_id = int(layout.get("wallpaper", STARTER_LAYOUT["wallpaper"]))
+	floor_tiles = {}
+	for entry: Variant in layout.get("tiles", []):
+		if entry is Dictionary:
+			floor_tiles[Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0)))] = int(entry.get("id", 0))
 	_build_shell()
 	for entry: Dictionary in layout["items"]:
 		place_item(int(entry["id"]), Vector2i(int(entry["x"]), int(entry["y"])), int(entry["rotation"]))
@@ -291,7 +299,13 @@ func to_layout() -> Dictionary:
 	var placed: Array = []
 	for item in items:
 		placed.append({"id": item.item_id, "x": item.tile.x, "y": item.tile.y, "rotation": item.turns})
-	return {"items": placed, "floor": floor_id, "wallpaper": wallpaper_id}
+	var described := {"items": placed, "floor": floor_id, "wallpaper": wallpaper_id}
+	if not floor_tiles.is_empty():
+		var painted: Array = []
+		for tile: Vector2i in floor_tiles:
+			painted.append({"id": floor_tiles[tile], "x": tile.x, "y": tile.y})
+		described["tiles"] = painted
+	return described
 
 
 func _process(_delta: float) -> void:
@@ -334,6 +348,21 @@ func items_of_type(type: String) -> Array[RoomItem]:
 	return matching
 
 
+## Everything standing on the tile, bottom first: at most a table and a decoration on it.
+func items_at(tile: Vector2i) -> Array[RoomItem]:
+	var found: Array[RoomItem] = []
+	for item in items:
+		if Rect2i(item.tile, item.footprint).has_point(tile):
+			found.append(item)
+	return found
+
+
+## The surface (a table) the item stands on, or null when it stands on the floor.
+func surface_under(item: RoomItem) -> RoomItem:
+	var below := items_at(item.tile)
+	return below[0] if below.size() > 1 and below[0] != item and below[0].has_type(SURFACE_TYPE) else null
+
+
 ## WorldRestaurant.getItemAtTile: the first item placed on the tile, or null.
 func item_at(tile: Vector2i) -> RoomItem:
 	for item in items:
@@ -365,7 +394,8 @@ func footprint_of(item_id: int, turns: int) -> Vector2i:
 
 
 ## WorldRestaurant.isValid, without stacking decorations on tables: wall decorations go on
-## bare wall tiles, everything else on free floor, and outdoor items only outdoors.
+## bare wall tiles, everything else on free floor or (if stackable) on a table, and outdoor
+## items only outdoors.
 func can_place(item_id: int, tile: Vector2i, turns: int) -> bool:
 	var types := GameData.interior_items.get_types_by_id(item_id)
 	var on_wall := WALL_DECORATION_TYPE in types
@@ -375,7 +405,11 @@ func can_place(item_id: int, tile: Vector2i, turns: int) -> bool:
 			var covered := tile + Vector2i(x, y)
 			if not grid.contains(covered) or covered == Vector2i.ZERO:
 				return false
-			if grid.is_wall(covered) != on_wall or item_at(covered) != null:
+			if grid.is_wall(covered) != on_wall:
+				return false
+			# WorldRestaurant.isValid: a stackable item may stand on a lone surface.
+			var below := items_at(covered)
+			if not below.is_empty() and not (STACKABLE_TYPE in types and below.size() == 1 and below[0].has_type(SURFACE_TYPE)):
 				return false
 			if OUTDOOR_TYPE in types and not grid.is_outside(covered):
 				return false
@@ -405,6 +439,10 @@ func place_item(item_id: int, tile: Vector2i, turns: int) -> RoomItem:
 	item.top_height = _sprites.item_height(sprite_name, RoomGrid.footprint_from_extent(_sprites.extent(sprite_name)).y)
 	item.sprite = sprite
 	sprite.z_index = RoomGrid.tile_draw_order(tile) * RoomActor.DRAW_ORDER_STEP
+	var surface := item_at(tile)
+	if item.has_type(STACKABLE_TYPE) and surface != null and surface.has_type(SURFACE_TYPE):
+		sprite.position.y -= surface.top_height
+		sprite.z_index = surface.sprite.z_index + OVER_ACTOR
 	grid.add_item(tile, item.footprint, item.has_type(DOOR_TYPE))
 	# Trash under furniture could not be seen or swept, yet would still put customers off.
 	for x in item.footprint.x:
@@ -418,6 +456,23 @@ func remove_item(item: RoomItem) -> void:
 	grid.remove_item(item.tile, item.footprint, item.has_type(DOOR_TYPE))
 	items.erase(item)
 	item.sprite.queue_free()
+
+
+## WorldRestaurantEditor's floor painting: one floor item covers one tile of the room.
+func can_paint(tile: Vector2i) -> bool:
+	return tile.x >= 1 and tile.y >= 1 and tile.x < grid.size.x and tile.y < grid.size.y
+
+
+func floor_at(tile: Vector2i) -> int:
+	return floor_tiles.get(tile, floor_id)
+
+
+func paint_floor(tile: Vector2i, item_id: int) -> void:
+	if item_id == floor_id:
+		floor_tiles.erase(tile)
+	else:
+		floor_tiles[tile] = item_id
+	_rebuild_shell()
 
 
 func set_floor(item_id: int) -> void:
@@ -872,10 +927,9 @@ func _build_shell() -> void:
 			RoomGrid.tile_to_screen(corner + outside_size), RoomGrid.tile_to_screen(corner + Vector2i(0, outside_size.y)),
 		])
 		floor_layer.add_child(grass)
-	var floor_sprite := sprite_name_of(floor_id)
 	for y in range(1, size.y):
 		for x in range(1, size.x):
-			_place(floor_layer, floor_sprite, Vector2i(x, y), 0)
+			_place(floor_layer, sprite_name_of(floor_at(Vector2i(x, y))), Vector2i(x, y), 0)
 	# WorldRestaurant.addDefaultWalls and setWallPaper.
 	var wall := _sprite_name_of_named(WALL_ITEM)
 	var wallpaper := sprite_name_of(wallpaper_id)

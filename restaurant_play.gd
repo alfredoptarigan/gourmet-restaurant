@@ -304,8 +304,9 @@ func _drop_trash(delta: float) -> void:
 
 
 ## WorldRestaurant.isTableFree.
+## A table with a decoration on it takes no orders.
 func is_table_free(table: RoomItem) -> bool:
-	return table.table_top_order == null
+	return table.table_top_order == null and room.items_at(table.tile).size() == 1
 
 
 ## A shuffled copy, drawn with this object's generator so a seeded run is repeatable.
