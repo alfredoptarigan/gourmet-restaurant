@@ -25,6 +25,11 @@ const EMOTION_SPRITE := "Emotions"
 const EMOTION_NODE := "Emotion"
 const TOILET_WATER_SPRITE := "ToiletWater"
 const CLEANER_NEEDED_SPRITE := "CleanerNeeded"
+## Entries of the profile's saved data.
+const MENU_KEY := "menu"
+const JOBS_KEY := "jobs"
+## In the order of RestaurantPlay.Job.
+const JOB_NAMES: Array[String] = ["Chef", "Waiter", "Cleaner"]
 ## Above the head of a standing character, in original-game pixels from its tile.
 const EMOTION_OFFSET := Vector2(0, -52)
 ## Where the middle of the floor sits on the 760 x 600 stage.
@@ -71,8 +76,10 @@ var editor: RestaurantEditor
 var level := 1
 var floor_id := 0
 var wallpaper_id := 0
-## The job of each employee (RestaurantPlay.Job). Empty means the default split.
+## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
 var jobs: Array[int] = []
+## The dish the player serves for each course: course name -> recipe id; see recipe_for().
+var menu: Dictionary = {}
 ## Trash on the floor: tile -> sprite name. It stays while the restaurant is redecorated.
 ## ponytail: trash lasts for the session only. The original saves the count with the
 ## profile and adds what piled up while the player was away.
@@ -95,6 +102,10 @@ var _offline_points := 0
 func _ready() -> void:
 	var points := int(Api.profile.get("gourmetPoints", 0)) if Api.is_signed_in() else 0
 	level = Levels.level_for(points)
+	if Api.is_signed_in():
+		var saved: Dictionary = Api.profile.get("data", {})
+		jobs = valid_jobs(saved.get(JOBS_KEY))
+		menu = valid_menu(saved.get(MENU_KEY))
 	build(_saved_layout())
 	_connect_hud()
 	start_play()
@@ -107,6 +118,55 @@ func _saved_layout() -> Dictionary:
 		if saved is Dictionary and saved.get("items") is Array:
 			return saved
 	return STARTER_LAYOUT
+
+
+## Saved jobs as the game can use them: empty unless every entry is a known job.
+static func valid_jobs(saved: Variant) -> Array[int]:
+	var checked: Array[int] = []
+	if not saved is Array:
+		return checked
+	for entry: Variant in saved:
+		if not (entry is float or entry is int) or int(entry) not in RestaurantPlay.Job.values():
+			return []
+		checked.append(int(entry))
+	return checked
+
+
+## A saved menu as the game can use it: only courses whose recipe really is of that course.
+static func valid_menu(saved: Variant) -> Dictionary:
+	var checked := {}
+	if not saved is Dictionary:
+		return checked
+	for course in RestaurantPlay.MENU_GROUPS:
+		var recipe_id: Variant = saved.get(course)
+		if (recipe_id is float or recipe_id is int) and GameData.recipe_items.get_group_name_by_id(int(recipe_id)) == course:
+			checked[course] = int(recipe_id)
+	return checked
+
+
+## One job for every employee the level allows: the player's choices first, the default
+## split for the rest. A saved list longer than the level allows is cut short.
+func staff_jobs() -> Array[int]:
+	var staff := RestaurantPlay.default_jobs(int(Levels.row(level)["employees"]), items_of_type(RestaurantPlay.KITCHEN_TYPE).size())
+	for index in mini(jobs.size(), staff.size()):
+		staff[index] = jobs[index]
+	return staff
+
+
+## The recipes a course can be served with.
+func menu_choices(course: String) -> Array:
+	return GameData.recipe_items.get_items(course).filter(
+		func(recipe: Dictionary) -> bool: return recipe.get("invisible") != true)
+
+
+## The dish served for a course: the player's choice, or the first recipe of the course.
+## ponytail: every recipe can be chosen and all are level 1. The original has the player
+## learn and level recipes with ingredients (WorldRecipeMenu).
+func recipe_for(course: String) -> Dictionary:
+	if menu.has(course):
+		return GameData.recipe_items.get_item_by_id(menu[course])
+	var recipes := menu_choices(course)
+	return recipes[0] if not recipes.is_empty() else {}
 
 
 func build(layout: Dictionary) -> void:
@@ -269,9 +329,7 @@ func start_play() -> void:
 	play.name = "Play"
 	add_child(play)
 	var doors := items_of_type(DOOR_TYPE)
-	var staff := jobs if not jobs.is_empty() else RestaurantPlay.default_jobs(
-			int(Levels.row(level)["employees"]), items_of_type(RestaurantPlay.KITCHEN_TYPE).size())
-	play.start(self, doors[0] if not doors.is_empty() else null, staff)
+	play.start(self, doors[0] if not doors.is_empty() else null, staff_jobs())
 	play.sound_wanted.connect(Sounds.play)
 	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
@@ -310,6 +368,8 @@ func _connect_hud() -> void:
 	hud.set_signed_in(Api.is_signed_in())
 	hud.sign_out_pressed.connect(_sign_out)
 	hud.decorate_pressed.connect(_decorate)
+	hud.menu_pressed.connect(choose_menu)
+	hud.staff_pressed.connect(choose_staff)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -347,6 +407,7 @@ func _decorate() -> void:
 		return
 	stop_play()
 	hud.decorate_button.disabled = true
+	hud.staff_button.disabled = true
 	editor = RestaurantEditor.new()
 	editor.name = "Editor"
 	add_child(editor)
@@ -359,7 +420,61 @@ func _on_editor_finished() -> void:
 	editor.queue_free()
 	editor = null
 	hud.decorate_button.disabled = false
+	hud.staff_button.disabled = false
 	start_play()
+
+
+func choose_menu() -> ChoicePanel:
+	var rows: Array = []
+	for course in RestaurantPlay.MENU_GROUPS:
+		var recipes := menu_choices(course)
+		rows.append({
+			"label": course,
+			"options": recipes.map(func(recipe: Dictionary) -> String: return recipe.get("name", "")),
+			"selected": maxi(0, recipes.find(recipe_for(course))),
+		})
+	var panel: ChoicePanel = hud.open_choices("Menu", rows)
+	panel.chosen.connect(_on_menu_chosen)
+	return panel
+
+
+func _on_menu_chosen(selections: Array[int]) -> void:
+	var picked := {}
+	for index in RestaurantPlay.MENU_GROUPS.size():
+		var recipes := menu_choices(RestaurantPlay.MENU_GROUPS[index])
+		if selections[index] >= 0 and selections[index] < recipes.size():
+			picked[RestaurantPlay.MENU_GROUPS[index]] = int(recipes[selections[index]]["id"])
+	menu = picked
+	_save(MENU_KEY, menu)
+
+
+## ponytail: the staff are the game's own characters. The original has the player hire
+## friends (WorldHire), which needs a friends list this game does not have.
+func choose_staff() -> ChoicePanel:
+	var staff := staff_jobs()
+	var rows: Array = []
+	for index in staff.size():
+		rows.append({"label": "Employee %d" % (index + 1), "options": JOB_NAMES, "selected": staff[index]})
+	var panel: ChoicePanel = hud.open_choices("Staff", rows)
+	panel.chosen.connect(_on_staff_chosen)
+	return panel
+
+
+## New jobs take effect at once: the restaurant closes and reopens with the new staff.
+func _on_staff_chosen(selections: Array[int]) -> void:
+	jobs = selections
+	if play != null:
+		stop_play()
+		start_play()
+	_save(JOBS_KEY, jobs)
+
+
+func _save(key: String, value: Variant) -> void:
+	if not Api.is_signed_in():
+		return
+	var result := await Api.save_data(key, value)
+	if not result["ok"]:
+		hud.show_message("Could not save: %s" % result["error"])
 
 
 func _sign_out() -> void:

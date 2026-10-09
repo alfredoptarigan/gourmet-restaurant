@@ -69,6 +69,13 @@ func _check() -> void:
 		var again := await Api.fetch_profile()
 		_expect(again["ok"] and Api.profile["data"]["layout"]["items"][4]["x"] == 4.0, "the saved layout should come back on the next fetch")
 
+	var menu_saved := await Api.save_data("menu", {"Starter": 5000008})
+	var layout_saved := await Api.save_layout(Api.profile["data"]["layout"])
+	var reloaded := await Api.fetch_profile()
+	_expect(menu_saved["ok"] and layout_saved["ok"] and reloaded["ok"], "saving the menu and then the layout should both succeed, got %s and %s" % [menu_saved, layout_saved])
+	_expect(Api.profile["data"].get("menu") == {"Starter": 5000008.0} and Api.profile["data"].get("layout") is Dictionary,
+			"each save should keep what the other stored, got keys %s" % [Api.profile["data"].keys()])
+
 	Api._set_token("")
 	var signed_in := await Api.login(username, password)
 	_expect(signed_in["ok"] and Api.profile.get("coins") == 2.0, "signing in again should show the saved coins, got %s" % Api.profile)

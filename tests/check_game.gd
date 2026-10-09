@@ -111,6 +111,7 @@ func _check_room() -> void:
 	_check_waiting_for_a_table(room)
 	_check_functional_items(room)
 	_check_trash_and_cleaner(room)
+	_check_menu_and_staff_choices(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -324,6 +325,7 @@ func _check_trash_and_cleaner(room: RestaurantRoom) -> void:
 	const TOILET := 3500021
 	room.stop_play()
 	var toilet := room.place_item(TOILET, Vector2i(5, 7), 0)
+	room.level = 4   # three employees
 	room.jobs = [RestaurantPlay.Job.CHEF, RestaurantPlay.Job.WAITER, RestaurantPlay.Job.CLEANER]
 	room.start_play()
 	var play := room.play
@@ -364,8 +366,46 @@ func _check_trash_and_cleaner(room: RestaurantRoom) -> void:
 	room.trash.clear()
 	room.remove_item(toilet)
 	room.jobs = []
+	room.level = 1
 	room.start_play()
 	_expect(room.play.cleaners.is_empty(), "the default jobs have no cleaner")
+
+
+func _check_menu_and_staff_choices(room: RestaurantRoom) -> void:
+	_expect(RestaurantRoom.valid_jobs([0.0, 2.0, 1.0]) == [0, 2, 1], "saved jobs arrive from JSON as numbers")
+	_expect(RestaurantRoom.valid_jobs([0.0, 7.0]).is_empty() and RestaurantRoom.valid_jobs("chef").is_empty(), "jobs the game does not know are ignored")
+	_expect(RestaurantRoom.valid_menu({"Starter": 5000008.0, "Main": 5000008.0, "Dessert": "cake"}) == {"Starter": 5000008},
+			"a saved menu keeps only recipes that belong to their course")
+	room.jobs = [2, 2, 2, 2, 2, 2]
+	_expect(room.staff_jobs() == [2, 2], "level 1 has two employees however many jobs were saved")
+	room.jobs = []
+
+	var staff_panel := room.choose_staff()
+	staff_panel.select(0, RestaurantPlay.Job.CLEANER)
+	staff_panel.finish()
+	_expect(room.jobs == [RestaurantPlay.Job.CLEANER, RestaurantPlay.Job.WAITER], "the staff form sets each employee's job")
+	_expect(room.play.chefs.is_empty() and room.play.cleaners.size() == 1, "and the restaurant reopens with that staff")
+
+	_expect(room.recipe_for("Starter").get("name") == "Tomato and Basil Soup", "by default a course is served with its first recipe")
+	var menu_panel := room.choose_menu()
+	menu_panel.select(0, 1)
+	menu_panel.finish()
+	var second_starter: Dictionary = room.menu_choices("Starter")[1]
+	_expect(room.menu.get("Starter") == int(second_starter["id"]) and room.recipe_for("Starter") == second_starter, "the menu form sets the dish of a course")
+	room.play.set_process(false)
+	var table := room.item_at(Vector2i(3, 3))
+	var starters := 0
+	for attempt in 30:
+		var order := room.play.create_order(null, table)
+		_expect(order.recipe == room.recipe_for(GameData.recipe_items.get_group_name_by_id(int(order.recipe["id"]))), "orders are for dishes on the menu")
+		starters += int(order.recipe == second_starter)
+		room.play.cancel_order(order)
+	_expect(starters > 0, "customers should order the chosen starter")
+
+	room.stop_play()
+	room.jobs = []
+	room.menu = {}
+	room.start_play()
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

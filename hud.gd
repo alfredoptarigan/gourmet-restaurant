@@ -7,6 +7,8 @@ extends CanvasLayer
 
 signal sign_out_pressed
 signal decorate_pressed
+signal menu_pressed
+signal staff_pressed
 
 const MESSAGE_SECONDS := 4.0
 
@@ -17,13 +19,18 @@ const MESSAGE_SECONDS := 4.0
 @onready var message_label: Label = %Message
 @onready var sign_out_button: Button = %SignOut
 @onready var decorate_button: Button = %Decorate
+@onready var menu_button: Button = %Menu
+@onready var staff_button: Button = %Staff
 
 var _message_time_left := 0.0
+var _choices: ChoicePanel
 
 
 func _ready() -> void:
 	sign_out_button.pressed.connect(func() -> void: sign_out_pressed.emit())
 	decorate_button.pressed.connect(func() -> void: decorate_pressed.emit())
+	menu_button.pressed.connect(func() -> void: menu_pressed.emit())
+	staff_button.pressed.connect(func() -> void: staff_pressed.emit())
 	message_label.text = ""
 
 
@@ -58,3 +65,14 @@ func set_signed_in(signed_in: bool) -> void:
 func show_message(text: String) -> void:
 	message_label.text = text
 	_message_time_left = MESSAGE_SECONDS
+
+
+## Opens a form in the middle of the screen, replacing any form already open.
+func open_choices(title: String, rows: Array) -> ChoicePanel:
+	if is_instance_valid(_choices):
+		_choices.queue_free()
+	_choices = ChoicePanel.new()
+	_choices.setup(title, rows)
+	add_child(_choices)
+	_choices.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	return _choices

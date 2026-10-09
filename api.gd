@@ -14,6 +14,7 @@ const DEFAULT_BASE_URL := "http://localhost:3000"
 const BASE_URL_VARIABLE := "GOURMET_SERVER_URL"
 const REQUEST_TIMEOUT := 10.0
 const UNAUTHORIZED := 401
+const LAYOUT_KEY := "layout"
 
 var base_url := DEFAULT_BASE_URL
 var token := ""
@@ -81,12 +82,21 @@ func sell(item_id: int) -> Dictionary:
 
 ## Stores the restaurant's layout. The server refuses furniture the player does not own.
 func save_layout(layout: Dictionary) -> Dictionary:
-	var body := {"version": int(profile.get("version", 0)), "data": {"layout": layout}}
-	var result := await _request(HTTPClient.METHOD_PUT, "/profile", body)
+	return await save_data(LAYOUT_KEY, layout)
+
+
+## Stores one entry of the profile's free-form data and keeps the others.
+func save_data(key: String, value: Variant) -> Dictionary:
+	var data: Dictionary = profile.get("data", {}).duplicate()
+	data[key] = value
+	# The server keeps the stored layout when a save leaves it out, and checks it against
+	# what the player owns when it is there: only send it when it is what changed.
+	var sent := data.duplicate()
+	if key != LAYOUT_KEY:
+		sent.erase(LAYOUT_KEY)
+	var result := await _request(HTTPClient.METHOD_PUT, "/profile", {"version": int(profile.get("version", 0)), "data": sent})
 	if result["ok"]:
 		profile["version"] = result["data"].get("version", profile.get("version", 0))
-		var data: Dictionary = profile.get("data", {})
-		data["layout"] = layout
 		profile["data"] = data
 	return result
 

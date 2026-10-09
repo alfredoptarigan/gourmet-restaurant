@@ -246,9 +246,7 @@ func shuffled(things: Array) -> Array:
 
 ## WorldRestaurantPlay.createOrderForCustomer and addOrderFromCustomer.
 func create_order(customer: Customer, table: RoomItem) -> DishOrder:
-	var recipes := GameData.recipe_items.get_items(MENU_GROUPS[rng.randi_range(0, MENU_GROUPS.size() - 1)])
-	# ponytail: the first recipe of the course stands in for the player's chosen menu.
-	var recipe: Dictionary = recipes[0] if not recipes.is_empty() else {}
+	var recipe := room.recipe_for(MENU_GROUPS[rng.randi_range(0, MENU_GROUPS.size() - 1)])
 	var order := DishOrder.new(recipe, customer, table)
 	table.table_top_order = order
 	orders.append(order)
