@@ -210,10 +210,11 @@ func pay_extra() -> void:
 ## Floor tiles with nothing standing on them.
 func free_floor_tiles() -> Array[Vector2i]:
 	var tiles: Array[Vector2i] = []
-	for y in range(1, room.grid.size.y):
-		for x in range(1, room.grid.size.x):
-			if room.grid.is_walkable(Vector2i(x, y)):
-				tiles.append(Vector2i(x, y))
+	for y in room.grid.bounds().y:
+		for x in room.grid.bounds().x:
+			var tile := Vector2i(x, y)
+			if room.grid.is_walkable(tile) and not room.grid.is_wall(tile):
+				tiles.append(tile)
 	return tiles
 
 
@@ -315,19 +316,33 @@ func entrances() -> Array[Vector2i]:
 	return tiles
 
 
+## WorldRestaurantPlay.getValidOutsideAreaEntrances: the outdoor area is entered from the
+## street along its west edge, wherever the tile just inside is free.
+func outside_entrances() -> Array[Vector2i]:
+	var tiles: Array[Vector2i] = []
+	for row in room.grid.outside.y:
+		var y := room.grid.size.y + row
+		if room.grid.is_walkable(Vector2i(1, y)):
+			tiles.append(Vector2i(0, y))
+	return tiles
+
+
 ## ponytail: only customers walk the street. The original also sends passers-by along it.
 func _let_customers_in(delta: float) -> void:
 	_arrival_timer -= delta
 	if _arrival_timer > 0.0:
 		return
 	_arrival_timer = _next_arrival_delay()
-	var ways_in := entrances()
-	if ways_in.is_empty():
+	var doors := entrances()
+	var outside := outside_entrances()
+	if doors.is_empty() and outside.is_empty():
 		return
+	# Half the customers use a door and half the outdoor area, when there are both.
+	var through_door := not doors.is_empty() and (outside.is_empty() or rng.randi_range(0, 1) == 0)
 	var customer := Customer.new()
 	_add_actor(customer, [])
 	customers.append(customer)
-	customer.enter(self, _pick(ways_in), _pick(STREET_START_TILES))
+	customer.enter(self, _pick(doors if through_door else outside), _pick(STREET_START_TILES))
 
 
 func _add_actor(actor: RoomActor, extra_items: Array) -> void:

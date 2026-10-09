@@ -116,6 +116,7 @@ func _check_room() -> void:
 	_check_trash_and_cleaner(room)
 	_check_menu_and_staff_choices(room)
 	_check_drinks(room)
+	_check_outdoor_area(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -467,6 +468,45 @@ func _check_drinks(room: RestaurantRoom) -> void:
 	room.remove_item(dispenser)
 	room.level = 1
 	room.start_play()
+
+
+func _check_outdoor_area(room: RestaurantRoom) -> void:
+	const CHAIR := 3040001
+	const GREEN_BUSH := 3120000
+	var floor_tiles := room.floor_layer.get_child_count()
+	_expect(RestaurantRoom.best_outside_size({}) == Vector2i.ZERO, "with no outdoor area bought there is none")
+	_expect(RestaurantRoom.best_outside_size({3900000: 1, 3900001: 1}) == Vector2i(9, 8), "the biggest outdoor area owned counts")
+	_expect(not room.can_place(CHAIR, Vector2i(3, 10), 0) and room.play.outside_entrances().is_empty(), "there is nothing south of the room at first")
+	room.set_outside_size(Vector2i(7, 6))
+	var grid := room.grid
+	_expect(grid.contains(Vector2i(3, 10)) and grid.is_outside(Vector2i(3, 10)), "an outdoor area of 7 x 6 lies south of the 8 x 8 room")
+	_expect(not grid.contains(Vector2i(7, 10)) and not grid.contains(Vector2i(3, 14)) and grid.contains(Vector2i(7, 7)), "and is no bigger than that")
+	_expect(not grid.find_path(Vector2i(4, 4), Vector2i(3, 10)).is_empty(), "the room opens onto it")
+	_expect(room.floor_layer.get_node_or_null("Grass") != null, "the outdoor area is drawn as grass")
+	_expect(room.can_place(GREEN_BUSH, Vector2i(3, 10), 0) and not room.can_place(GREEN_BUSH, Vector2i(4, 4), 0), "outdoor items only fit outdoors")
+	_expect(room.can_place(CHAIR, Vector2i(3, 10), 0), "ordinary furniture fits outdoors too")
+	_expect(room.play.outside_entrances().size() == 6 and room.play.outside_entrances()[0] == Vector2i(0, 8), "every row of the outdoor area is a way in from the street")
+
+	var chair := room.place_item(CHAIR, Vector2i(3, 10), 0)
+	var stand_ins: Array[Customer] = []
+	for seat in room.play.empty_chairs(false, false):
+		if seat != chair:
+			stand_ins.append(Customer.new())
+			seat.occupant = stand_ins.back()
+	var customer := Customer.new()
+	room.play._add_actor(customer, [])
+	room.play.customers.append(customer)
+	customer.enter(room.play, Vector2i(0, 9))
+	_expect(customer.chair == chair, "a customer can come in through the outdoor area and take a chair there")
+	_expect(_tick_until(customer, Customer.State.DECIDING) and customer.tile == Vector2i(3, 10), "and walks to it")
+	for stand_in in stand_ins:
+		stand_in.free()
+
+	room.stop_play()
+	room.remove_item(chair)
+	room.set_outside_size(Vector2i.ZERO)
+	room.start_play()
+	_expect(room.floor_layer.get_child_count() == floor_tiles, "without the outdoor area only the room's floor is left")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

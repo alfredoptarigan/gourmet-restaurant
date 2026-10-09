@@ -2,9 +2,16 @@
 
 A fan remake of a 2010 isometric restaurant game, built with Godot 4 and a small
 Hono + PostgreSQL backend. Early work in progress: a new player's restaurant runs on its
-own from the original data and art (customers come in, order, eat, and pay). You sign in to
-the backend, which keeps your account, credits the coins you earn, and holds your furniture.
-The Decorate button lets you move furniture and buy more with those coins.
+own from the original data and art: customers walk in from the street, wait for a table,
+order, eat, and pay. You sign in to the backend, which keeps your account, credits the coins
+you earn, and holds your furniture.
+
+- **Decorate** moves furniture and buys more with your coins, including toilets, sinks,
+  arcade machines, drink dispensers, and (from level 10) an outdoor area.
+- **Menu** sets the dish served for each course. Drinks join the menu at level 15.
+- **Staff** makes each employee a chef, a waiter, or a cleaner.
+- Click trash on the floor to pick it up, and a broken toilet or arcade machine to repair it.
+  A cleaner does both for you.
 
 ## No game assets in this repository
 
@@ -44,6 +51,8 @@ to use another address.
 ```bash
 python3 -m unittest discover tools   # asset tools
 tests/check_game.sh                  # headless Godot check (needs the generated assets)
+                                     # after adding a script with a class_name, run once:
+                                     #   godot --headless --path . --import
 tests/check_online.sh                # the game's client against a real server (needs PostgreSQL)
 ```
 
@@ -64,10 +73,13 @@ Endpoints so far: `GET /health`, `GET /time`, `POST /auth/register`, `POST /auth
 `GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`.
 
 Coins and cash are server-owned. A profile save can only change the `data` blob, and the
-client reports how many dishes were paid for, never how many coins: the server pays 2 coins
-a dish, up to the rate a full restaurant could serve in the time since the last report.
-The shop takes its prices from `data/restaurant.json`, and a saved layout may only place
-furniture the player owns.
+client reports how many dishes and extras (arcade plays, trash picked up) were paid for,
+never how many coins: the server pays 2 coins a dish and 1 an extra, up to the rate a full
+restaurant could serve in the time since the last report.
+The shop takes its prices and unlock levels from `data/restaurant.json`, and a saved layout
+may only place furniture the player owns. The menu and the staff's jobs are saved in the
+profile's free-form `data`; they only steer the client's simulation, so the server does not
+check them.
 
 ## Layout
 

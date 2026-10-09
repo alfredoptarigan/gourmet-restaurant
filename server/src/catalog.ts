@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { describeIssues } from './http.ts';
 
-export type CatalogItem = { cost: number; purchasable: boolean };
-/** Item id -> its price in coins and whether the shop sells it for coins. */
+export type CatalogItem = { cost: number; purchasable: boolean; unlockLevel: number };
+/** Item id -> its price in coins, whether the shop sells it for coins, and from which level. */
 export type Catalog = ReadonlyMap<number, CatalogItem>;
 
 // The shape tools/extract_data.py writes: groups of items whose numbers are strings.
@@ -15,6 +15,7 @@ const groupsSchema = z.array(
         cost: z.string().regex(/^-?\d+$/),
         cash: z.string().regex(/^\d+$/).optional(),
         invisible: z.boolean().optional(),
+        unlockLevel: z.string().regex(/^\d+$/).optional(),
       }),
     ),
   }),
@@ -31,7 +32,7 @@ export function parseCatalog(groups: unknown): Catalog {
       const cost = Number(item.cost);
       // Awards cost nothing, some items are cash-only, and hidden items are never sold.
       const purchasable = cost > 0 && Number(item.cash ?? '0') === 0 && item.invisible !== true;
-      catalog.set(Number(item.id), { cost, purchasable });
+      catalog.set(Number(item.id), { cost, purchasable, unlockLevel: Number(item.unlockLevel ?? '0') });
     }
   }
   return catalog;

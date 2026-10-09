@@ -1,8 +1,6 @@
 class_name Customer
 extends RoomActor
 ## A diner: comes in, takes a chair, orders, eats, pays, leaves. Port of Customer.as.
-##
-## Not ported yet: the outdoor area.
 
 ## Customer.EMOTION_*: the frame of the Emotions sprite shown over an unhappy customer.
 enum Emotion { NONE = -1, NO_SEAT, DIRTY, WAIT_TOO_LONG, DECOR, NO_TABLE, NO_CLEAN_TABLE, NO_TOILET, WAIT_TOO_LONG_FOR_DRINK }

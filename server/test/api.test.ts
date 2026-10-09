@@ -18,7 +18,9 @@ const CHAIR = 3040001;
 const FANCY_LAMP = 3020099;
 const AWARD = 3100000;
 const CASH_ONLY = 3020098;
+const OUTDOOR_AREA = 3900000;
 const catalog: Catalog = parseCatalog([
+  { items: [{ id: '3900000', cost: '2500', unlockLevel: '10' }] },
   { name: 'Chair', items: [{ id: String(CHAIR), cost: '200', cash: '0' }] },
   {
     name: 'Decoration',
@@ -389,6 +391,21 @@ async function inventory(token: string): Promise<Record<string, number>> {
   assert.equal(response.status, 200);
   return response.body.data.items;
 }
+
+test('an item with an unlock level cannot be bought before that level', async () => {
+  const token = await register();
+  await giveCoins(5000);
+
+  const early = await call(app, 'POST', '/shop/buy', { token, body: { itemId: OUTDOOR_AREA } });
+  // Level 10 starts at 6000 gourmet points.
+  await sql`update profiles set gourmet_points = 6000`;
+  const later = await call(app, 'POST', '/shop/buy', { token, body: { itemId: OUTDOOR_AREA } });
+
+  assert.equal(early.status, 409);
+  assert.equal(early.body.error, 'Reach level 10 to buy this');
+  assert.equal(later.status, 200);
+  assert.equal(later.body.data.coins, 2500);
+});
 
 test('a new player owns the furniture of the starting restaurant', async () => {
   const token = await register();

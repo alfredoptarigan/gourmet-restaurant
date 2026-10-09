@@ -28,6 +28,11 @@ const CLEANER_NEEDED_SPRITE := "CleanerNeeded"
 ## Entries of the profile's saved data.
 const MENU_KEY := "menu"
 const JOBS_KEY := "jobs"
+## The group of the outdoor area sizes the shop sells, and the type of outdoor-only items.
+const OUTSIDE_GROUP := "OutsideAreaSize"
+const OUTDOOR_TYPE := "outdoor"
+## The grass of the outdoor area: the base colour in WorldRestaurant.setOutsideAreaSize.
+const GRASS := Color("a2c957")
 ## In the order of RestaurantPlay.Job.
 const JOB_NAMES: Array[String] = ["Chef", "Waiter", "Cleaner"]
 ## Above the head of a standing character, in original-game pixels from its tile.
@@ -76,6 +81,7 @@ var editor: RestaurantEditor
 var level := 1
 var floor_id := 0
 var wallpaper_id := 0
+var outside_size := Vector2i.ZERO
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
 var jobs: Array[int] = []
 ## The dish the player serves for each course: course name -> recipe id; see recipe_for().
@@ -106,6 +112,12 @@ func _ready() -> void:
 		var saved: Dictionary = Api.profile.get("data", {})
 		jobs = valid_jobs(saved.get(JOBS_KEY))
 		menu = valid_menu(saved.get(MENU_KEY))
+		var inventory := await Api.fetch_inventory()
+		if inventory["ok"] and inventory["data"].get("items") is Dictionary:
+			var owned := {}
+			for item_id: String in inventory["data"]["items"]:
+				owned[int(item_id)] = int(inventory["data"]["items"][item_id])
+			outside_size = best_outside_size(owned)
 	build(_saved_layout())
 	_connect_hud()
 	start_play()
@@ -144,6 +156,26 @@ static func valid_menu(saved: Variant) -> Dictionary:
 	return checked
 
 
+## The outdoor area the player has: the biggest of the sizes they own (item id -> quantity),
+## or zero when they own none.
+static func best_outside_size(owned: Dictionary) -> Vector2i:
+	var best := {}
+	for area: Dictionary in GameData.interior_items.get_items(OUTSIDE_GROUP):
+		if int(owned.get(int(area["id"]), 0)) > 0 and (best.is_empty() or int(area["sizeX"]) > int(best["sizeX"])):
+			best = area
+	return Vector2i(int(best["sizeX"]), int(best["sizeY"])) if not best.is_empty() else Vector2i.ZERO
+
+
+## ponytail: outdoor furniture keeps its tile when the room grows with the level, so a row
+## of it can end up indoors. Shift it south with the area if that bothers anyone.
+func set_outside_size(new_size: Vector2i) -> void:
+	if new_size == outside_size:
+		return
+	outside_size = new_size
+	grid.set_outside(new_size)
+	_rebuild_shell()
+
+
 ## One job for every employee the level allows: the player's choices first, the default
 ## split for the rest. A saved list longer than the level allows is cut short.
 func staff_jobs() -> Array[int]:
@@ -171,6 +203,7 @@ func recipe_for(course: String) -> Dictionary:
 
 func build(layout: Dictionary) -> void:
 	grid = RoomGrid.new(Levels.room_size(level))
+	grid.set_outside(outside_size)
 	floor_id = int(layout.get("floor", STARTER_LAYOUT["floor"]))
 	wallpaper_id = int(layout.get("wallpaper", STARTER_LAYOUT["wallpaper"]))
 	_build_shell()
@@ -257,9 +290,10 @@ func footprint_of(item_id: int, turns: int) -> Vector2i:
 
 
 ## WorldRestaurant.isValid, without stacking decorations on tables: wall decorations go on
-## bare wall tiles, everything else on free floor.
+## bare wall tiles, everything else on free floor, and outdoor items only outdoors.
 func can_place(item_id: int, tile: Vector2i, turns: int) -> bool:
-	var on_wall := WALL_DECORATION_TYPE in GameData.interior_items.get_types_by_id(item_id)
+	var types := GameData.interior_items.get_types_by_id(item_id)
+	var on_wall := WALL_DECORATION_TYPE in types
 	var footprint := footprint_of(item_id, turns)
 	for x in footprint.x:
 		for y in footprint.y:
@@ -267,6 +301,8 @@ func can_place(item_id: int, tile: Vector2i, turns: int) -> bool:
 			if not grid.contains(covered) or covered == Vector2i.ZERO:
 				return false
 			if grid.is_wall(covered) != on_wall or item_at(covered) != null:
+				return false
+			if OUTDOOR_TYPE in types and not grid.is_outside(covered):
 				return false
 	return true
 
@@ -509,6 +545,16 @@ func _rebuild_shell() -> void:
 func _build_shell() -> void:
 	var size := grid.size
 	position = FLOOR_CENTER_ON_SCREEN - RoomGrid.tile_to_screen(size) / 2.0
+	if outside_size != Vector2i.ZERO:
+		var corner := Vector2i(0, size.y)
+		var grass := Polygon2D.new()
+		grass.name = "Grass"
+		grass.color = GRASS
+		grass.polygon = PackedVector2Array([
+			RoomGrid.tile_to_screen(corner), RoomGrid.tile_to_screen(corner + Vector2i(outside_size.x, 0)),
+			RoomGrid.tile_to_screen(corner + outside_size), RoomGrid.tile_to_screen(corner + Vector2i(0, outside_size.y)),
+		])
+		floor_layer.add_child(grass)
 	var floor_sprite := sprite_name_of(floor_id)
 	for y in range(1, size.y):
 		for x in range(1, size.x):

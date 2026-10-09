@@ -5,6 +5,7 @@ import { requireAuth, type AuthEnv } from './auth.ts';
 import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
 import { ApiError, ok, parseBody } from './http.ts';
+import { levelFor } from './levels.ts';
 
 // GameWorld.getSellPrice: an item sells for a third of what it cost.
 const SELL_PRICE_DIVISOR = 3;
@@ -129,6 +130,13 @@ export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
     }
     const userId = c.get('userId');
     const result = await sql.begin(async (transaction) => {
+      if (item.unlockLevel > 1) {
+        const rows = await transaction<{ gourmet_points: number }[]>`
+          select gourmet_points from profiles where user_id = ${userId}`;
+        if (levelFor(rows[0]?.gourmet_points ?? 0) < item.unlockLevel) {
+          throw new ApiError(409, `Reach level ${item.unlockLevel} to buy this`);
+        }
+      }
       // The price is taken only if the balance covers it; no row back means it did not.
       const paid = await transaction<{ coins: string }[]>`
         update profiles set coins = coins - ${item.cost}

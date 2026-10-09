@@ -10,6 +10,9 @@ const TILE_HEIGHT := 40
 const MAX_NUM_TILES_X := 20
 
 var size: Vector2i
+## The outdoor area, south of the room: tiles (0 .. outside.x - 1, size.y .. size.y + outside.y - 1).
+## Zero when there is none (WorldRestaurant.numOutsideTilesX / Y).
+var outside := Vector2i.ZERO
 
 var _item_counts: Dictionary = {}
 var _walls: Dictionary = {}
@@ -69,8 +72,21 @@ func _init(room_size: Vector2i) -> void:
 	_astar.update()
 
 
+## WorldRestaurant.isTileOutOfBound, the other way round: the room and the outdoor area.
 func contains(tile: Vector2i) -> bool:
+	if tile.y >= size.y:
+		return tile.x >= 0 and tile.x < outside.x and tile.y < size.y + outside.y
 	return Rect2i(Vector2i.ZERO, size).has_point(tile)
+
+
+## WorldRestaurant.isTileInOutsideArea.
+func is_outside(tile: Vector2i) -> bool:
+	return tile.y >= size.y and contains(tile)
+
+
+## The size of the rectangle that holds both the room and the outdoor area.
+func bounds() -> Vector2i:
+	return Vector2i(maxi(size.x, outside.x), size.y + outside.y)
 
 
 ## WorldRestaurant.addToItemMap. A door only matters on a wall tile, where it opens the wall.
@@ -113,10 +129,19 @@ func add_wall(tile: Vector2i) -> void:
 ## Grows the room. Everything already placed stays where it is.
 func resize(new_size: Vector2i) -> void:
 	size = new_size
-	_astar.region = Rect2i(Vector2i.ZERO, size)
+	_reshape()
+
+
+func set_outside(new_outside: Vector2i) -> void:
+	outside = new_outside
+	_reshape()
+
+
+func _reshape() -> void:
+	_astar.region = Rect2i(Vector2i.ZERO, bounds())
 	_astar.update()
-	for x in size.x:
-		for y in size.y:
+	for x in bounds().x:
+		for y in bounds().y:
 			_refresh(Vector2i(x, y))
 
 

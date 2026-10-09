@@ -15,7 +15,7 @@ const INVENTORY := "Inventory"
 ## The shop's shelves, in the order shown (group names from restaurant.json).
 const SHOP_GROUPS: Array[String] = [
 	"Table", "Chair", "Decoration", "Wall Decoration", "Door", "Kitchen Appliance",
-	"Functional", "Floor Tile", "Wallpaper",
+	"Functional", "Floor Tile", "Wallpaper", "Outdoor Only", RestaurantRoom.OUTSIDE_GROUP,
 ]
 const FLOOR_GROUP := "Floor Tile"
 const WALLPAPER_GROUP := "Wallpaper"
@@ -139,6 +139,10 @@ func buy(item_id: int) -> void:
 	if not Api.is_signed_in():
 		_say("Sign in to buy furniture.")
 		return
+	var unlock_level := int(GameData.interior_items.get_item_by_id(item_id).get("unlockLevel", 0))
+	if unlock_level > room.level:
+		_say("Reach level %d to buy this." % unlock_level)
+		return
 	_busy = true
 	var result := await Api.buy(item_id)
 	_busy = false
@@ -234,6 +238,10 @@ func _use(item_id: int) -> void:
 			_refresh_list()
 		WALLPAPER_GROUP:
 			room.set_wallpaper(item_id)
+			_refresh_list()
+		RestaurantRoom.OUTSIDE_GROUP:
+			room.set_outside_size(RestaurantRoom.best_outside_size(owned))
+			_say("Your outdoor area is %d x %d tiles." % [room.outside_size.x, room.outside_size.y])
 			_refresh_list()
 		_:
 			hold(item_id)
