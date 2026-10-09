@@ -58,24 +58,59 @@ func _check_room() -> void:
 	_expect(chair != null and chair.frame == 1, "frame 5 of a 4-frame sprite should wrap to 1")
 	if chair != null:
 		chair.free()
-	_expect(RestaurantRoom.tile_to_screen(Vector2i(0, 0)) == Vector2.ZERO, "tile (0, 0) is the room origin")
-	_expect(RestaurantRoom.tile_to_screen(Vector2i(3, 1)) == Vector2(80, 80), "tile (3, 1) should be at (80, 80)")
-	_expect(RestaurantRoom.tile_draw_order(Vector2i(2, 1)) == 22, "tile (2, 1) should draw at index 22")
-	var room: Node = load("res://restaurant_room.tscn").instantiate()
+	_check_grid()
+	var room: RestaurantRoom = load("res://restaurant_room.tscn").instantiate()
 	add_child(room)
 	await get_tree().process_frame
-	_expect(room.get_node("Floor").get_child_count() == 64, "an 8x8 room has 64 floor tiles")
-	_expect(room.get_node("Walls").get_child_count() == 16, "two 8-tile walls have 16 wallpaper pieces")
-	# The items layer also holds the placeholder avatar.
+	_expect(room.get_node("Floor").get_child_count() == 49, "an 8x8 room has a 7x7 floor inside its walls")
+	_expect(room.get_node("Walls").get_child_count() == 29, "14 wall pieces, 14 wallpapers, and a corner")
+	# The items layer also holds the actor.
 	_expect(room.get_node("Items").get_child_count() == RestaurantRoom.DEFAULT_ITEMS.size() + 1,
 			"every default item should be placed, got %d" % room.get_node("Items").get_child_count())
-	_expect(RestaurantRoom.tile_center(Vector2i(0, 0)) == Vector2(0, 20), "a tile's centre is half a tile down")
-	_check_avatar(room.get_node_or_null("Items/Avatar"))
+	_expect(not room.grid.is_walkable(Vector2i(3, 3)), "a table blocks its tile")
+	_expect(not room.grid.is_walkable(Vector2i(0, 3)), "a wall blocks its tile")
+	_expect(room.grid.is_walkable(Vector2i(0, 4)), "the door opens the wall tile it is on")
+	_expect(room.grid.is_walkable(Vector2i(1, 4)), "the tile inside the door is free")
+	_expect(not room.grid.is_walkable(Vector2i(6, 3)), "the rotated stove covers the tile below it")
+	_expect(room.actor.tile == RestaurantRoom.DEFAULT_DOOR_TILE, "the actor starts in the doorway")
+	_expect(not room.walk_actor_to(Vector2i(3, 3)), "the actor refuses to walk onto a table")
+	_expect(room.walk_actor_to(Vector2i(4, 4)), "the actor accepts a free tile")
+	_expect(room.actor.is_walking(), "the actor should be walking after accepting a tile")
+	var path := room.grid.find_path(RestaurantRoom.DEFAULT_DOOR_TILE, Vector2i(4, 4))
+	_expect(not path.is_empty() and path.all(func(step: Vector2i) -> bool: return room.grid.is_walkable(step)),
+			"the path to (4, 4) should only cross free tiles, got %s" % [path])
+	_check_avatar(room.actor.avatar)
 	room.queue_free()
 
 
+func _check_grid() -> void:
+	_expect(RoomGrid.tile_to_screen(Vector2i(3, 1)) == Vector2(80, 80), "tile (3, 1) should be at (80, 80)")
+	_expect(RoomGrid.tile_center(Vector2i(0, 0)) == Vector2(0, 20), "a tile's centre is half a tile down")
+	_expect(RoomGrid.tile_draw_order(Vector2i(2, 1)) == 22, "tile (2, 1) should draw at index 22")
+	for tile: Vector2i in [Vector2i(0, 0), Vector2i(3, 1), Vector2i(0, 5), Vector2i(7, 7)]:
+		_expect(RoomGrid.screen_to_tile(RoomGrid.tile_center(tile)) == tile, "the centre of %s should map back to it" % tile)
+	_expect(RoomGrid.footprint_from_extent(Vector2(80, 60)) == Vector2i(2, 1), "the stove's art covers 2x1 tiles")
+	_expect(RoomGrid.footprint_from_extent(Vector2(19.5, 30.4)) == Vector2i(1, 1), "a chair covers one tile")
+	_expect(RoomGrid.rotated_footprint(Vector2i(2, 1), 3) == Vector2i(1, 2), "an odd rotation swaps the footprint")
+	_expect(RoomActor.direction_for(Vector2(0, -20)) == 0, "moving up the screen is direction 0")
+	_expect(RoomActor.direction_for(Vector2(40, 20)) == 3, "moving right and down is direction 3")
+	_expect(RoomActor.direction_for(Vector2(-40, 20)) == 5, "moving left and down is direction 5")
+
+	var grid := RoomGrid.new(Vector2i(4, 4))
+	grid.add_item(Vector2i(1, 0), Vector2i(1, 3))
+	_expect(not grid.is_walkable(Vector2i(1, 2)), "an item blocks every tile of its footprint")
+	_expect(not grid.is_walkable(Vector2i(4, 0)), "a tile outside the room is not walkable")
+	var around := grid.find_path(Vector2i(0, 0), Vector2i(2, 0))
+	_expect(around.size() == 8 and around.back() == Vector2i(2, 0),
+			"the path should go around the barrier without cutting its corner, got %s" % [around])
+	_expect(grid.find_path(Vector2i(0, 0), Vector2i(1, 1)) == [Vector2i(0, 1), Vector2i(1, 1)],
+			"a blocked destination is still reachable, without cutting the corner")
+	grid.add_item(Vector2i(1, 3))
+	_expect(grid.find_path(Vector2i(0, 0), Vector2i(3, 0)).is_empty(), "a sealed-off tile has no path")
+
+
 func _check_avatar(avatar: Avatar) -> void:
-	_expect(avatar != null, "the room should contain an avatar")
+	_expect(avatar != null, "the actor should have an avatar")
 	if avatar == null:
 		return
 	var hidden := avatar.find_child("hat01", true, false) as Node3D

@@ -6,7 +6,7 @@ import zlib
 
 from PIL import Image
 
-from extract_sprites import SpriteError, build_sheet, exported_sprite_names, parse_origin, sheet_columns
+from extract_sprites import SpriteError, build_sheet, exported_sprite_names, frame_bounds, parse_origin, sheet_columns
 
 DEFINE_SPRITE = 39
 SYMBOL_CLASS = 76
@@ -80,6 +80,19 @@ class ParseOriginTest(unittest.TestCase):
             parse_origin('<svg><g></g></svg>', 'Table')
 
         self.assertIn('Table', str(raised.exception))
+
+
+class FrameBoundsTest(unittest.TestCase):
+    def test_measures_the_drawn_pixels_relative_to_the_origin(self):
+        frame = Image.new('RGBA', (20, 10), (0, 0, 0, 0))
+        frame.paste((255, 0, 0, 255), (4, 2, 12, 9))
+
+        self.assertEqual(frame_bounds(frame, origin=(6.0, 5.0)), [-2.0, -3.0, 6.0, 4.0])
+
+    def test_an_empty_frame_has_no_extent(self):
+        frame = Image.new('RGBA', (20, 10), (0, 0, 0, 0))
+
+        self.assertEqual(frame_bounds(frame, origin=(6.0, 5.0)), [0.0, 0.0, 0.0, 0.0])
 
 
 class SheetTest(unittest.TestCase):

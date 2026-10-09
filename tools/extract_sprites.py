@@ -4,7 +4,7 @@ Run: python3 tools/extract_sprites.py [group ...]      (default: indoor avatar)
 
 For raw/<group>_asset.swf this writes
   assets/sprites/<group>/<ClassName>.png   every timeline frame of the symbol, in a grid
-  assets/sprites/<group>.json              frame count, grid columns, frame size and origin
+  assets/sprites/<group>.json              frame count, grid columns, frame size, origin, bounds
 
 The art is vector, so JPEXS rasterises it at ZOOM times the original size. `origin` is where
 the symbol's registration point sits inside one frame, in sheet pixels; the game positions
@@ -111,6 +111,15 @@ def parse_origin(svg: str, sprite_name: str) -> tuple:
     return float(match.group(1)), float(match.group(2))
 
 
+def frame_bounds(frame: Image.Image, origin: tuple) -> list:
+    """Left, top, right, bottom of the drawn pixels, relative to the registration point."""
+    box = frame.getbbox()
+    if box is None:
+        return [0.0, 0.0, 0.0, 0.0]
+    origin_x, origin_y = origin
+    return [round(box[0] - origin_x, 2), round(box[1] - origin_y, 2), round(box[2] - origin_x, 2), round(box[3] - origin_y, 2)]
+
+
 def sheet_columns(frame_count: int, frame_width: int, max_width: int) -> int:
     return max(1, min(frame_count, max_width // max(1, frame_width)))
 
@@ -164,12 +173,15 @@ def write_sprite(name: str, png_dir: Path, svg_dir: Path, sheets_dir: Path) -> d
     origin_x, origin_y = parse_origin(svg_files[0].read_text(encoding='utf-8'), name)
     columns = sheet_columns(len(frames), frame_width, MAX_SHEET_WIDTH)
     build_sheet(frames, columns).save(sheets_dir / f'{name}.png')
+    origin = (round(origin_x * ZOOM, 2), round(origin_y * ZOOM, 2))
     return {
         'frames': len(frames),
         'columns': columns,
         'width': frame_width,
         'height': frame_height,
-        'origin': [round(origin_x * ZOOM, 2), round(origin_y * ZOOM, 2)],
+        'origin': list(origin),
+        # Flash sized an item's tile footprint from its first frame, so that frame is measured.
+        'bounds': frame_bounds(frames[0], origin),
     }
 
 

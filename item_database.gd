@@ -38,6 +38,15 @@ func get_item_from_group(item_name: String, group_name: String) -> Dictionary:
 	return {}
 
 
+## The type flags of an item: its own plus its group's, as RoomItem's constructor merges them.
+func get_item_types(item_name: String) -> Array:
+	for group: Dictionary in groups:
+		for item: Dictionary in group["items"]:
+			if item.get("name") == item_name:
+				return group.get("types", []) + item.get("types", [])
+	return []
+
+
 func get_item(item_name: String) -> Dictionary:
 	for group: Dictionary in groups:
 		for item: Dictionary in group["items"]:

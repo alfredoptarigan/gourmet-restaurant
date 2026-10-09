@@ -44,6 +44,13 @@ func origin(sprite_name: String) -> Vector2:
 	return Vector2(point[0], point[1])
 
 
+## How far the first frame's art reaches right and down from the registration point, in
+## original-game pixels. The original judged an item's tile footprint from this.
+func extent(sprite_name: String) -> Vector2:
+	var bounds: Array = _sprites.get(sprite_name, {}).get("bounds", [0, 0, 0, 0])
+	return Vector2(bounds[2], bounds[3]) / _zoom
+
+
 ## The first frame as an RGBA8 image, for compositing. Returns null (after logging) if missing.
 func make_image(sprite_name: String) -> Image:
 	if not has_sprite(sprite_name):

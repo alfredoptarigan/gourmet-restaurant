@@ -40,6 +40,9 @@ const CUSTOMISABLE_PREFIXES: Array[String] = ["pants", "dress", "shirt", "hat", 
 const TIMELINE_FPS := 10.0
 const DEFAULT_FRAME_DELAY := 0.08
 const DIRECTION_COUNT := 8
+## Directions run clockwise from 0 = walking up the screen, so 4 walks toward the camera
+## and shows the face (AvatarActor.moveTo).
+const FACING_CAMERA_DIRECTION := 4
 const ISO_PITCH_DEGREES := 30.0
 const TEXTURE_SIZE := 256
 const BODY_MATERIAL := "texture"
@@ -55,7 +58,7 @@ const PIXELS_PER_UNIT := 0.4
 const VIEW_SIZE := Vector2i(160, 160)
 const FEET_FROM_TOP := 130
 
-var direction := 1
+var direction := FACING_CAMERA_DIRECTION
 var animation: int = Animations.IDLE
 
 var _sprites := SpriteLibrary.load_group("avatar")
@@ -86,7 +89,7 @@ func setup(items: Array, skin_colour: Color, hair_colour: Color) -> void:
 func set_direction(value: int) -> void:
 	direction = posmod(value, DIRECTION_COUNT)
 	if _yaw != null:
-		_yaw.rotation_degrees.y = direction * 360.0 / DIRECTION_COUNT
+		_yaw.rotation_degrees.y = (FACING_CAMERA_DIRECTION - direction) * 360.0 / DIRECTION_COUNT
 
 
 func play(value: int) -> void:
