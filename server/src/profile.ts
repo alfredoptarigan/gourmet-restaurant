@@ -14,6 +14,19 @@ const saveSchema = z.strictObject({
   data: z.record(z.string(), z.unknown()),
 });
 
+// Every recipe in the game sells for 2 coins (GameWorld.COST_PER_DISH).
+const COINS_PER_DISH = 2;
+// The busiest a restaurant can get: GameWorld.MAX_DEMAND (550) x 0.05 customers a minute.
+const MAX_DISHES_PER_MINUTE = 28;
+// Allowance stops building after this long without a report, so time away is not a jackpot.
+const MAX_ALLOWANCE_SECONDS = 600;
+const MAX_REPORTED_DISHES = 1000;
+
+// The client says how many dishes were paid for, never how many coins that is worth.
+const earningsSchema = z.strictObject({
+  dishes: z.number().int().min(1).max(MAX_REPORTED_DISHES),
+});
+
 type ProfileRow = { username: string; coins: string; cash: string; data: Record<string, unknown>; version: number };
 
 function toProfile(row: ProfileRow) {
@@ -56,6 +69,37 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
       return ok(c, { version: saved.version });
     },
   );
+
+  routes.post('/earnings', async (c) => {
+    const { dishes } = await parseBody(c, earningsSchema);
+    // One statement, so two reports arriving together cannot both spend the same allowance.
+    // The clock only restarts when something was credited: a report that came too early
+    // must not push the next payout further away.
+    const rows = await sql<{ coins: string; credited: number }[]>`
+      with allowance as (
+        select user_id, least(
+          ${dishes}::int,
+          floor(
+            least(extract(epoch from now() - last_earned_at), ${MAX_ALLOWANCE_SECONDS}::int)
+            * ${MAX_DISHES_PER_MINUTE}::int / 60.0
+          )::int
+        ) as credited
+        from profiles
+        where user_id = ${c.get('userId')}
+        for update
+      )
+      update profiles
+      set coins = profiles.coins + allowance.credited * ${COINS_PER_DISH}::int,
+          last_earned_at = case when allowance.credited > 0 then now() else profiles.last_earned_at end
+      from allowance
+      where profiles.user_id = allowance.user_id
+      returning profiles.coins, allowance.credited`;
+    const row: { coins: string; credited: number } | undefined = rows[0];
+    if (!row) {
+      throw new ApiError(404, 'Profile not found');
+    }
+    return ok(c, { credited: row.credited, coins: Number(row.coins) });
+  });
 
   return routes;
 }

@@ -6,6 +6,8 @@ extends Node
 ## Runs itself every frame, or can be stepped by hand with tick() after set_process(false).
 
 signal coins_changed(coins: int)
+## A customer's meal was paid for (its plate was cleared).
+signal dish_paid
 
 ## WorldRestaurantPlay and GameWorld constants.
 const CUSTOMERS_PER_MINUTE_PER_DEMAND := 0.05
@@ -134,6 +136,7 @@ func clear_empty_plate(order: DishOrder) -> void:
 	coins += order.cost()
 	gourmet_points += GOURMET_POINTS_PER_DISH
 	coins_changed.emit(coins)
+	dish_paid.emit()
 
 
 func add_demand(change: float) -> void:

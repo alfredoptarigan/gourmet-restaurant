@@ -211,6 +211,99 @@ test('an oversized save is rejected', async () => {
   assert.equal(save.status, 413);
 });
 
+// Pretends the player last earned `seconds` ago, so a report has allowance to draw on.
+async function ageEarnings(seconds: number): Promise<void> {
+  await sql`update profiles set last_earned_at = now() - make_interval(secs => ${seconds})`;
+}
+
+test('reporting dishes credits two coins each', async () => {
+  const token = await register();
+  await ageEarnings(60);
+
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 3 } });
+  const profile = await call(app, 'GET', '/profile', { token });
+
+  assert.equal(report.status, 200);
+  assert.deepEqual(report.body.data, { credited: 3, coins: 6 });
+  assert.equal(profile.body.data.coins, 6);
+});
+
+test('dishes beyond what the elapsed time allows are not credited', async () => {
+  const token = await register();
+  await ageEarnings(60);
+
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 100 } });
+
+  assert.deepEqual(report.body.data, { credited: 28, coins: 56 });
+});
+
+test('nothing is credited when no time has passed', async () => {
+  const token = await register();
+
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 5 } });
+
+  assert.equal(report.status, 200);
+  assert.deepEqual(report.body.data, { credited: 0, coins: 0 });
+});
+
+test('a report uses up the allowance it drew on', async () => {
+  const token = await register();
+  await ageEarnings(60);
+
+  await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 28 } });
+  const again = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 28 } });
+
+  assert.deepEqual(again.body.data, { credited: 0, coins: 56 });
+});
+
+test('a report that credits nothing leaves the allowance to keep building', async () => {
+  const token = await register();
+  await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 5 } });
+  await ageEarnings(60);
+
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 5 } });
+
+  assert.deepEqual(report.body.data, { credited: 5, coins: 10 });
+});
+
+test('allowance stops building after ten minutes away', async () => {
+  const token = await register();
+  await ageEarnings(24 * 60 * 60);
+
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 1000 } });
+
+  assert.deepEqual(report.body.data, { credited: 280, coins: 560 });
+});
+
+test('earnings only reach the signed-in player', async () => {
+  const anna = await register('chef_anna');
+  const budi = await register('chef_budi');
+  await ageEarnings(60);
+
+  await call(app, 'POST', '/profile/earnings', { token: anna, body: { dishes: 4 } });
+  const profile = await call(app, 'GET', '/profile', { token: budi });
+
+  assert.equal(profile.body.data.coins, 0);
+});
+
+test('an earnings report must be a whole number of dishes from 1 to 1000', async () => {
+  const token = await register();
+  await ageEarnings(60);
+
+  for (const body of [{ dishes: 0 }, { dishes: -1 }, { dishes: 1.5 }, { dishes: '3' }, { dishes: 1001 }, {}, { dishes: 1, coins: 99 }]) {
+    const report = await call(app, 'POST', '/profile/earnings', { token, body });
+    assert.equal(report.status, 400, JSON.stringify(body));
+  }
+  const profile = await call(app, 'GET', '/profile', { token });
+  assert.equal(profile.body.data.coins, 0);
+});
+
+test('earnings require a session', async () => {
+  const report = await call(app, 'POST', '/profile/earnings', { body: { dishes: 1 } });
+
+  assert.equal(report.status, 401);
+});
+
 test('auth endpoints are rate limited', async () => {
   const limited = createApp({ sql, authRateLimit: { limit: 2, windowMs: 60_000 } });
   const attempt = () => call(limited, 'POST', '/auth/login', { body: { username: 'nobody_here', password: PASSWORD } });

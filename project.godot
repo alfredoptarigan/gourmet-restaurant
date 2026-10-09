@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Gourmet Street"
-run/main_scene="res://restaurant_room.tscn"
+run/main_scene="res://login.tscn"
 ; Default frame cap. Settings (settings.gd) lets the player pick 30 or 60.
 run/max_fps=30
 config/features=PackedStringArray("4.7", "GL Compatibility")
@@ -20,6 +20,7 @@ config/features=PackedStringArray("4.7", "GL Compatibility")
 
 Settings="*res://settings.gd"
 GameData="*res://game_data.gd"
+Api="*res://api.gd"
 
 [display]
 

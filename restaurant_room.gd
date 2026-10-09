@@ -73,9 +73,8 @@ func build(layout: Dictionary) -> void:
 	play = RestaurantPlay.new()
 	play.name = "Play"
 	add_child(play)
-	play.coins_changed.connect(_on_coins_changed)
-	_on_coins_changed(play.coins)
 	play.start(self, layout["door"])
+	_track_coins()
 
 
 func items_of_type(type: String) -> Array[RoomItem]:
@@ -100,7 +99,20 @@ func table_for_chair(chair: RoomItem) -> RoomItem:
 	return faced if faced != null and faced.has_type(TABLE_TYPE) else null
 
 
-func _on_coins_changed(coins: int) -> void:
+## Signed in, the coins shown are the server's; offline, they are just this session's count.
+func _track_coins() -> void:
+	if not Api.is_signed_in():
+		play.coins_changed.connect(_show_coins)
+		_show_coins(play.coins)
+		return
+	var sync := EarningsSync.new()
+	sync.name = "EarningsSync"
+	add_child(sync)
+	sync.coins_changed.connect(_show_coins)
+	sync.start(play)
+
+
+func _show_coins(coins: int) -> void:
 	coins_label.text = "Coins: %d" % coins
 
 

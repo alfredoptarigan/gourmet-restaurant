@@ -13,9 +13,12 @@ var failures: Array[String] = []
 
 
 func _ready() -> void:
+	# Run offline whatever session is saved on this machine; the token is not written back.
+	Api.token = ""
 	_check_data()
 	_check_fps_setting()
 	await _check_room()
+	await _check_login_screen()
 	for failure in failures:
 		printerr("FAIL: " + failure)
 	print("check_game: %s" % ("OK" if failures.is_empty() else "%d failed" % failures.size()))
@@ -83,6 +86,13 @@ func _check_room() -> void:
 	var path := room.grid.find_path(RestaurantRoom.DEFAULT_DOOR_TILE, Vector2i(4, 4))
 	_expect(not path.is_empty() and path.all(func(step: Vector2i) -> bool: return room.grid.is_walkable(step)),
 			"the path to (4, 4) should only cross free tiles, got %s" % [path])
+	_expect(room.get_node_or_null("EarningsSync") == null, "offline, the room should not sync earnings")
+	_expect(room.coins_label.text == "Coins: 0", "offline, the label starts at this session's 0 coins")
+	var sync := EarningsSync.new()
+	sync._on_dish_paid()
+	sync._on_dish_paid()
+	_expect(sync.shown_coins() == 4, "two unconfirmed dishes should show as 4 coins, got %d" % sync.shown_coins())
+	sync.free()
 	_check_avatar(room.play.waiters[0].avatar)
 	_check_simulation(room)
 	room.queue_free()
@@ -177,3 +187,16 @@ func _check_avatar(avatar: Avatar) -> void:
 	var order: Array[Dictionary] = [{"priority": 2, "id": "a"}, {"priority": 0, "id": "b"}, {"priority": 2, "id": "c"}]
 	var sorted := Avatar.sort_by_priority(order).map(func(entry: Dictionary) -> String: return entry["id"])
 	_expect(sorted == ["b", "c", "a"], "texture pieces sort by priority, later equals first, got %s" % [sorted])
+
+
+func _check_login_screen() -> void:
+	var screen: Control = load("res://login.tscn").instantiate()
+	add_child(screen)
+	await get_tree().process_frame
+	var message := screen.get_node("%Message") as Label
+	var login_button := screen.get_node("%Login") as Button
+	_expect(message != null and login_button != null and not login_button.disabled, "signed out, the login form should be ready to use")
+	login_button.pressed.emit()
+	await get_tree().process_frame
+	_expect(message != null and message.text == "Enter a username and a password.", "an empty form should ask for both fields, got '%s'" % (message.text if message else ""))
+	screen.queue_free()

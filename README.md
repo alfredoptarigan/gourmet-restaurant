@@ -2,8 +2,8 @@
 
 A fan remake of a 2010 isometric restaurant game, built with Godot 4 and a small
 Hono + PostgreSQL backend. Early work in progress: a new player's restaurant runs on its
-own from the original data and art (customers come in, order, eat, and pay), and the backend
-handles accounts and saved profiles. The two are not connected yet, and there is no editing.
+own from the original data and art (customers come in, order, eat, and pay). You sign in to
+the backend, which keeps your account and credits the coins you earn. There is no editing yet.
 
 ## No game assets in this repository
 
@@ -31,13 +31,18 @@ python3 tools/extract_sprites.py   # raw/{indoor,avatar}_asset.swf -> assets/spr
 `extract_sprites.py` reads the `JAVA` and `FFDEC_JAR` environment variables if Java or JPEXS
 are not in the default locations listed at the top of the script.
 
-Then open the folder in Godot and press F5.
+Then start the server (see Backend below), open the folder in Godot, and press F5. Create an
+account on the first screen, or choose "Play offline" to run without a server.
+
+The game talks to `http://localhost:3000`. Set the `GOURMET_SERVER_URL` environment variable
+to use another address.
 
 ## Checks
 
 ```bash
 python3 -m unittest discover tools   # asset tools
 tests/check_game.sh                  # headless Godot check (needs the generated assets)
+tests/check_online.sh                # the game's client against a real server (needs PostgreSQL)
 ```
 
 ## Backend
@@ -53,8 +58,11 @@ npm test                             # needs the _test database
 ```
 
 Endpoints so far: `GET /health`, `GET /time`, `POST /auth/register`, `POST /auth/login`,
-`POST /auth/logout`, `GET /profile`, `PUT /profile`. Coins and cash are server-owned: a
-profile save can only change the `data` blob.
+`POST /auth/logout`, `GET /profile`, `PUT /profile`, `POST /profile/earnings`.
+
+Coins and cash are server-owned. A profile save can only change the `data` blob, and the
+client reports how many dishes were paid for, never how many coins: the server pays 2 coins
+a dish, up to the rate a full restaurant could serve in the time since the last report.
 
 ## Layout
 
