@@ -180,7 +180,7 @@ func _on_avatar_chosen(selections: Array[int]) -> void:
 		if selections[index] < 0 or selections[index] >= choices.size():
 			return
 		items[groups[index]] = choices[selections[index]]["name"]
-	room.look = RestaurantRoom.valid_look({"items": items, "skin": selections[groups.size()], "hair": selections[groups.size() + 1]})
+	room.look = ProfileRules.valid_look({"items": items, "skin": selections[groups.size()], "hair": selections[groups.size() + 1]})
 	room._reopen()
 	room._save(RestaurantRoom.AVATAR_KEY, room.look)
 
@@ -189,7 +189,7 @@ func _on_avatar_chosen(selections: Array[int]) -> void:
 func describe_recipe(recipe: Dictionary) -> String:
 	var level := int(room.known_recipes.get(int(recipe["id"]), 0))
 	var parts: Array = []
-	var needed := RestaurantRoom.ingredients_of(recipe)
+	var needed := ProfileRules.ingredients_of(recipe)
 	for ingredient_id: int in needed:
 		var name: String = GameData.ingredient_items.get_item_by_id(ingredient_id).get("name", "?")
 		parts.append("%s %d/%d" % [name, room.ingredients.get(ingredient_id, 0), needed[ingredient_id]])

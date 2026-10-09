@@ -441,9 +441,9 @@ func _check_trash_and_cleaner(room: RestaurantRoom) -> void:
 
 
 func _check_menu_and_staff_choices(room: RestaurantRoom) -> void:
-	_expect(RestaurantRoom.valid_jobs([0.0, 2.0, 1.0]) == [0, 2, 1], "saved jobs arrive from JSON as numbers")
-	_expect(RestaurantRoom.valid_jobs([0.0, 7.0]).is_empty() and RestaurantRoom.valid_jobs("chef").is_empty(), "jobs the game does not know are ignored")
-	_expect(RestaurantRoom.valid_menu({"Starter": 5000008.0, "Main": 5000008.0, "Dessert": "cake"}) == {"Starter": 5000008},
+	_expect(ProfileRules.valid_jobs([0.0, 2.0, 1.0]) == [0, 2, 1], "saved jobs arrive from JSON as numbers")
+	_expect(ProfileRules.valid_jobs([0.0, 7.0]).is_empty() and ProfileRules.valid_jobs("chef").is_empty(), "jobs the game does not know are ignored")
+	_expect(ProfileRules.valid_menu({"Starter": 5000008.0, "Main": 5000008.0, "Dessert": "cake"}) == {"Starter": 5000008},
 			"a saved menu keeps only recipes that belong to their course")
 	room.jobs = [2, 2, 2, 2, 2, 2]
 	_expect(room.staff_jobs() == [2, 2], "level 1 has two employees however many jobs were saved")
@@ -532,8 +532,8 @@ func _check_outdoor_area(room: RestaurantRoom) -> void:
 	const CHAIR := 3040001
 	const GREEN_BUSH := 3120000
 	var floor_tiles := room.floor_layer.get_child_count()
-	_expect(RestaurantRoom.best_outside_size({}) == Vector2i.ZERO, "with no outdoor area bought there is none")
-	_expect(RestaurantRoom.best_outside_size({3900000: 1, 3900001: 1}) == Vector2i(9, 8), "the biggest outdoor area owned counts")
+	_expect(ProfileRules.best_outside_size({}) == Vector2i.ZERO, "with no outdoor area bought there is none")
+	_expect(ProfileRules.best_outside_size({3900000: 1, 3900001: 1}) == Vector2i(9, 8), "the biggest outdoor area owned counts")
 	_expect(not room.can_place(CHAIR, Vector2i(3, 10), 0) and room.play.outside_entrances().is_empty(), "there is nothing south of the room at first")
 	room.set_outside_size(Vector2i(7, 6))
 	var grid := room.grid
@@ -568,15 +568,15 @@ func _check_outdoor_area(room: RestaurantRoom) -> void:
 
 
 func _check_avatar_choice(room: RestaurantRoom) -> void:
-	_expect(RestaurantRoom.valid_look({"items": {"Hair": "No Such Hair"}, "skin": 0.0, "hair": 0.0}).is_empty(), "a saved look with unknown items is ignored")
-	_expect(RestaurantRoom.valid_look("bald").is_empty(), "a saved look of the wrong shape is ignored")
+	_expect(ProfileRules.valid_look({"items": {"Hair": "No Such Hair"}, "skin": 0.0, "hair": 0.0}).is_empty(), "a saved look with unknown items is ignored")
+	_expect(ProfileRules.valid_look("bald").is_empty(), "a saved look of the wrong shape is ignored")
 	var panel := room.forms.choose_avatar()
 	panel.select(0, 1)
 	panel.select(RestaurantPlay.LOOK_GROUPS.size(), 3)
 	panel.finish()
 	var second_hair: String = RestaurantPlay.wearable("Hair")[1]["name"]
 	_expect(room.look.get("items", {}).get("Hair") == second_hair and room.look.get("skin") == 3, "the avatar form sets the player's look, got %s" % room.look)
-	_expect(RestaurantRoom.valid_look(JSON.parse_string(JSON.stringify(room.look))) == room.look, "the look survives being saved and loaded")
+	_expect(ProfileRules.valid_look(JSON.parse_string(JSON.stringify(room.look))) == room.look, "the look survives being saved and loaded")
 	_expect(room.play != null and room.play.chefs.size() == 1 and room.play.chefs[0].employee == 0, "the restaurant reopens with the first employee dressed as the player")
 	room.stop_play()
 	room.look = {}
@@ -587,9 +587,9 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 	const FULL := RestaurantPlay.MAX_WORK_TIME
 	_expect(RestaurantPlay.tired_at(100.0, 16.0, 32.0) == 16.0 and RestaurantPlay.tired_at(10.0, 16.0, 32.0) == 32.0, "rested staff are quickest and worn out staff slowest")
 	_expect(is_equal_approx(RestaurantPlay.tired_at(50.0, 16.0, 32.0), 24.0), "in between, speed follows energy")
-	var away := RestaurantRoom.rested_energy({"left": [100.0, FULL], "at": 1000.0}, [RestaurantPlay.Job.REST, RestaurantPlay.Job.WAITER], 1100.0)
+	var away := ProfileRules.rested_energy({"left": [100.0, FULL], "at": 1000.0}, [RestaurantPlay.Job.REST, RestaurantPlay.Job.WAITER], 1100.0)
 	_expect(away == [400.0, FULL - 100.0], "time away rests the resting and tires the working, got %s" % [away])
-	_expect(RestaurantRoom.rested_energy({"left": ["lots"], "at": 1.0}, [], 2.0).is_empty() and RestaurantRoom.rested_energy([], [], 2.0).is_empty(), "malformed saved energy is ignored")
+	_expect(ProfileRules.rested_energy({"left": ["lots"], "at": 1.0}, [], 2.0).is_empty() and ProfileRules.rested_energy([], [], 2.0).is_empty(), "malformed saved energy is ignored")
 
 	room.stop_play()
 	room.energy = [0.0, FULL * 0.1]
@@ -627,9 +627,9 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 
 func _check_recipes(room: RestaurantRoom) -> void:
 	var salad := GameData.recipe_items.get_item("Garden Salad")
-	var needed := RestaurantRoom.ingredients_of(salad)
+	var needed := ProfileRules.ingredients_of(salad)
 	_expect(needed.size() == 3 and needed.values().all(func(count: int) -> bool: return count == 1), "Garden Salad takes one each of salad, tomato, and egg")
-	_expect(RestaurantRoom.ingredients_of(GameData.recipe_items.get_item("Espresso")).values().has(2), "a name listed twice is needed twice")
+	_expect(ProfileRules.ingredients_of(GameData.recipe_items.get_item("Espresso")).values().has(2), "a name listed twice is needed twice")
 	_expect(room.menu_choices("Starter").size() > 3, "offline every recipe is on offer")
 	room.known_recipes = {5000008: 2}
 	room.ingredients = {4000034: 1}

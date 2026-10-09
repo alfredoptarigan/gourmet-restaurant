@@ -269,7 +269,7 @@ func _use(item_id: int) -> void:
 			_say("Your restaurant will play %s." % GameData.interior_items.get_item_by_id(item_id).get("name", ""))
 			_refresh_list()
 		RestaurantRoom.OUTSIDE_GROUP:
-			room.set_outside_size(RestaurantRoom.best_outside_size(owned))
+			room.set_outside_size(ProfileRules.best_outside_size(owned))
 			_say("Your outdoor area is %d x %d tiles." % [room.outside_size.x, room.outside_size.y])
 			_refresh_list()
 		_:
