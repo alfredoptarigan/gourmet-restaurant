@@ -142,15 +142,11 @@ var menu: Dictionary = {}
 var trash: Dictionary = {}
 var trash_timer := RestaurantPlay.TRASH_APPEAR_RATE
 
+var forms := RoomForms.new(self)
+var overlays := RoomOverlays.new(self)
 var _sprites := SpriteLibrary.load_group("indoor")
 var _game_sprites := SpriteLibrary.load_group("game")
 var _sync: EarningsSync
-var _dish_sprites: Dictionary = {}
-var _chair_overlays: Dictionary = {}
-## Broken item -> the sprites that mark it as broken.
-var _broken_marks: Dictionary = {}
-## Tile -> the sprite of the trash lying there.
-var _trash_sprites: Dictionary = {}
 ## Gourmet points from earlier openings this session, when playing offline.
 var _offline_points := 0
 
@@ -340,11 +336,7 @@ func to_layout() -> Dictionary:
 func _process(_delta: float) -> void:
 	if play == null:
 		return
-	_sync_dishes()
-	_sync_chair_overlays()
-	_sync_emotions()
-	_sync_broken_marks()
-	_sync_trash()
+	overlays.sync()
 	hud.set_demand(play.demand, play.is_closed())
 
 
@@ -365,18 +357,18 @@ func click_tile(tile: Vector2i) -> void:
 		play.remove_trash(tile)
 		return
 	if tile == food_king_tile:
-		choose_food_king_reward()
+		forms.choose_food_king_reward()
 		return
 	var item := item_at(tile)
 	for standing in items_at(tile):
 		if standing.has_type(MUSIC_PLAYER_TYPE):
-			choose_music()
+			forms.choose_music()
 			return
 		if standing.has_type(ACHIEVEMENT_TYPE):
-			open_awards()
+			forms.open_awards()
 			return
 		if standing.has_type(MAIL_TYPE):
-			open_quiz()
+			forms.open_quiz()
 			return
 	if item != null and item.is_broken():
 		play.fix_item(item)
@@ -394,78 +386,6 @@ func playing_music() -> Dictionary:
 func music_choices() -> Array:
 	return GameData.interior_items.get_items(MUSIC_GROUP).filter(func(music: Dictionary) -> bool:
 		return int(music.get("cost", 0)) == 0 or owned_music.has(int(music["id"])))
-
-
-## Clicking a jukebox or stereo picks the music. More music is sold in the Decorate shop.
-func choose_music() -> ChoicePanel:
-	var choices := music_choices()
-	var panel: ChoicePanel = hud.open_choices("Music", [{
-		"label": "Play",
-		"options": choices.map(func(music: Dictionary) -> String: return music.get("name", "")),
-		"selected": maxi(0, choices.find(playing_music())),
-	}])
-	panel.chosen.connect(func(selections: Array[int]) -> void:
-		if selections[0] >= 0 and selections[0] < choices.size():
-			set_music(int(choices[selections[0]]["id"])))
-	return panel
-
-
-## The achievement panel on the wall shows how far the player has got with each award.
-func open_awards() -> void:
-	if not Api.is_signed_in():
-		hud.show_message("Sign in to win awards.")
-		return
-	var result := await Api.fetch_awards()
-	if not result["ok"]:
-		hud.show_message(result["error"])
-		return
-	show_awards(result["data"].get("progress", {}))
-
-
-func show_awards(progress: Dictionary) -> ChoicePanel:
-	var rows: Array = []
-	for award: int in Awards.TABLE:
-		rows.append({"label": Awards.TABLE[award][0], "options": [Awards.describe(award, int(progress.get(str(award), 0)))], "selected": 0})
-	return hud.open_choices("Awards", rows)
-
-
-## The daily quiz arrives in the letter box, as the original's mail did.
-## ponytail: only the quiz is delivered. Gifts and messages from friends come with friends.
-func open_quiz() -> void:
-	if not Api.is_signed_in():
-		hud.show_message("Sign in to get mail.")
-		return
-	var result := await Api.fetch_quiz()
-	if not result["ok"]:
-		hud.show_message(result["error"])
-		return
-	if result["data"].get("answered") == true:
-		hud.show_message("No new mail. A new quiz comes tomorrow.")
-		return
-	ask_quiz(result["data"])
-
-
-func ask_quiz(quiz: Dictionary) -> ChoicePanel:
-	var reward: String = GameData.ingredient_items.get_item_by_id(int(quiz.get("rewardIngredientId", 0))).get("name", "an ingredient")
-	var panel: ChoicePanel = hud.open_choices("Daily quiz: answer right to win %s" % reward, [
-		{"label": quiz.get("question", ""), "options": quiz.get("choices", []), "selected": 0}])
-	panel.chosen.connect(func(selections: Array[int]) -> void: _on_quiz_answered(selections[0], quiz))
-	return panel
-
-
-func _on_quiz_answered(choice: int, quiz: Dictionary) -> void:
-	var result := await Api.answer_quiz(choice)
-	if not result["ok"]:
-		hud.show_message(result["error"])
-		return
-	if result["data"].get("correct") == true:
-		var won := int(result["data"].get("rewardIngredientId", 0))
-		ingredients[won] = ingredients.get(won, 0) + 1
-		hud.show_message("Right! You won %s." % GameData.ingredient_items.get_item_by_id(won).get("name", "an ingredient"))
-	else:
-		var choices: Array = quiz.get("choices", [])
-		var correct := int(result["data"].get("correctChoice", 0))
-		hud.show_message("Not quite: it was %s." % (choices[correct] if correct < choices.size() else "another answer"))
 
 
 ## FoodKing.addToRestaurant: on the days the server says he visits, Greg sits somewhere in
@@ -488,38 +408,6 @@ func seat_food_king(rewards: Array) -> void:
 		_food_king_sprite.position = RoomGrid.tile_center(food_king_tile)
 		_food_king_sprite.z_index = RoomGrid.tile_draw_order(food_king_tile) * RoomActor.DRAW_ORDER_STEP + OVER_ACTOR
 		item_layer.add_child(_food_king_sprite)
-
-
-static func describe_reward(reward: Dictionary) -> String:
-	var database: ItemDatabase = {"ingredient": GameData.ingredient_items, "recipe": GameData.recipe_items}.get(reward.get("kind"), GameData.interior_items)
-	return "%s (%s)" % [database.get_item_by_id(int(reward.get("id", 0))).get("name", "?"), reward.get("kind", "item")]
-
-
-## FoodKingPopUp: finding Greg lets the player pick one of his rewards.
-func choose_food_king_reward() -> ChoicePanel:
-	var panel: ChoicePanel = hud.open_choices("You found the Food King! Pick a reward", [
-		{"label": "Reward", "options": food_king_rewards.map(describe_reward), "selected": 0}])
-	panel.chosen.connect(func(selections: Array[int]) -> void: _claim_food_king(selections[0]))
-	return panel
-
-
-func _claim_food_king(choice: int) -> void:
-	var result := await Api.claim_food_king(choice)
-	if not result["ok"]:
-		hud.show_message(result["error"])
-		return
-	var reward: Dictionary = result["data"].get("reward", {})
-	match reward.get("kind"):
-		"ingredient":
-			ingredients[int(reward["id"])] = ingredients.get(int(reward["id"]), 0) + 1
-		"recipe":
-			if not known_recipes.has(int(reward["id"])):
-				known_recipes[int(reward["id"])] = 1
-	hud.show_message("The Food King gave you %s." % describe_reward(reward))
-	food_king_tile = Vector2i(-1, -1)
-	if _food_king_sprite != null:
-		_food_king_sprite.queue_free()
-		_food_king_sprite = null
 
 
 func set_music(item_id: int) -> void:
@@ -723,10 +611,7 @@ func stop_play() -> void:
 	for child in item_layer.get_children():
 		if child is RoomActor:
 			child.free()
-	for sprite: Sprite2D in _dish_sprites.values() + _chair_overlays.values():
-		sprite.queue_free()
-	_dish_sprites.clear()
-	_chair_overlays.clear()
+	overlays.clear_service()
 	for item in items:
 		item.occupant = null
 		item.table_top_order = null
@@ -740,12 +625,12 @@ func _connect_hud() -> void:
 	hud.set_signed_in(Api.is_signed_in())
 	hud.sign_out_pressed.connect(_sign_out)
 	hud.decorate_pressed.connect(_decorate)
-	hud.menu_pressed.connect(choose_menu)
-	hud.staff_pressed.connect(choose_staff)
-	hud.avatar_pressed.connect(choose_avatar)
-	hud.feed_pressed.connect(choose_food)
-	hud.recipes_pressed.connect(choose_recipe)
-	hud.garden_pressed.connect(open_garden)
+	hud.menu_pressed.connect(forms.choose_menu)
+	hud.staff_pressed.connect(forms.choose_staff)
+	hud.avatar_pressed.connect(forms.choose_avatar)
+	hud.feed_pressed.connect(forms.choose_food)
+	hud.recipes_pressed.connect(forms.choose_recipe)
+	hud.garden_pressed.connect(forms.open_garden)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -803,79 +688,6 @@ func _on_editor_finished() -> void:
 	start_play()
 
 
-func choose_menu() -> ChoicePanel:
-	var rows: Array = []
-	for course in RestaurantPlay.courses_for(level):
-		var recipes := menu_choices(course)
-		rows.append({
-			"label": course,
-			"options": recipes.map(func(recipe: Dictionary) -> String: return recipe.get("name", "")),
-			"selected": maxi(0, recipes.find(recipe_for(course))),
-		})
-	var panel: ChoicePanel = hud.open_choices("Menu", rows)
-	panel.chosen.connect(_on_menu_chosen)
-	return panel
-
-
-func _on_menu_chosen(selections: Array[int]) -> void:
-	var courses := RestaurantPlay.courses_for(level)
-	var picked := menu.duplicate()
-	for index in mini(courses.size(), selections.size()):
-		var recipes := menu_choices(courses[index])
-		if selections[index] >= 0 and selections[index] < recipes.size():
-			picked[courses[index]] = int(recipes[selections[index]]["id"])
-	menu = picked
-	_save(MENU_KEY, menu)
-
-
-## ponytail: the staff are the game's own characters. The original has the player hire
-## friends (WorldHire), which needs a friends list this game does not have.
-func choose_staff() -> ChoicePanel:
-	var staff := staff_jobs()
-	var rows: Array = []
-	for index in staff.size():
-		var percent := roundi(energy[index] / RestaurantPlay.MAX_WORK_TIME * 100.0) if index < energy.size() else 100
-		rows.append({"label": "Employee %d (%d%% energy)" % [index + 1, percent], "options": JOB_NAMES, "selected": staff[index]})
-	var panel: ChoicePanel = hud.open_choices("Staff", rows)
-	panel.chosen.connect(_on_staff_chosen)
-	return panel
-
-
-## New jobs take effect at once: the restaurant closes and reopens with the new staff.
-func _on_staff_chosen(selections: Array[int]) -> void:
-	jobs = selections
-	_reopen()
-	_save(JOBS_KEY, jobs)
-	_save_energy()
-
-
-## ponytail: a form of drop-downs with no preview, and every item is free to wear. The
-## original has a dressing room that sells clothes (WorldCustomiseAvatar).
-func choose_avatar() -> ChoicePanel:
-	var rows: Array = []
-	for group_name in RestaurantPlay.LOOK_GROUPS:
-		var names: Array = RestaurantPlay.wearable(group_name).map(func(item: Dictionary) -> String: return item.get("name", ""))
-		rows.append({"label": group_name, "options": names, "selected": maxi(0, names.find(look.get("items", {}).get(group_name)))})
-	rows.append({"label": "Skin", "options": RestaurantPlay.SKIN_COLOUR_NAMES, "selected": look.get("skin", 0)})
-	rows.append({"label": "Hair colour", "options": RestaurantPlay.HAIR_COLOUR_NAMES, "selected": look.get("hair", 0)})
-	var panel: ChoicePanel = hud.open_choices("Avatar (worn by your first employee)", rows)
-	panel.chosen.connect(_on_avatar_chosen)
-	return panel
-
-
-func _on_avatar_chosen(selections: Array[int]) -> void:
-	var groups := RestaurantPlay.LOOK_GROUPS
-	var items := {}
-	for index in groups.size():
-		var choices := RestaurantPlay.wearable(groups[index])
-		if selections[index] < 0 or selections[index] >= choices.size():
-			return
-		items[groups[index]] = choices[selections[index]]["name"]
-	look = valid_look({"items": items, "skin": selections[groups.size()], "hair": selections[groups.size() + 1]})
-	_reopen()
-	_save(AVATAR_KEY, look)
-
-
 func _take_kitchen(data: Dictionary) -> void:
 	if data.get("recipes") is Dictionary:
 		known_recipes = {}
@@ -915,125 +727,6 @@ func market_ingredients() -> Array:
 		return ingredient.get("noCoinShop") != true and INGREDIENT_COIN_PRICES.has(int(ingredient.get("cash", 0))))
 
 
-## How a recipe reads in the form: its level and what the next one takes, with what is held.
-func describe_recipe(recipe: Dictionary) -> String:
-	var level := int(known_recipes.get(int(recipe["id"]), 0))
-	var parts: Array = []
-	var needed := ingredients_of(recipe)
-	for ingredient_id: int in needed:
-		var name: String = GameData.ingredient_items.get_item_by_id(ingredient_id).get("name", "?")
-		parts.append("%s %d/%d" % [name, ingredients.get(ingredient_id, 0), needed[ingredient_id]])
-	var standing := "%s (level %d)" % [RECIPE_LEVEL_NAMES[level - 1], level] if level > 0 else "not learned"
-	return "%s, %s; needs %s" % [recipe.get("name", ""), standing, ", ".join(parts)]
-
-
-## WorldRecipeMenu and the ingredient market in one form: pick a recipe to learn or improve,
-## or an ingredient to buy, or both.
-## ponytail: drop-downs with no pictures; the original is a cookbook with a page per course.
-func choose_recipe() -> ChoicePanel:
-	var recipes: Array = learnable_recipes()
-	var market: Array = market_ingredients()
-	var panel: ChoicePanel = hud.open_choices("Recipes", [
-		{"label": "Learn or improve", "options": ["(nothing)"] + recipes.map(describe_recipe), "selected": 0},
-		{"label": "Buy an ingredient", "options": ["(nothing)"] + market.map(func(ingredient: Dictionary) -> String:
-			return "%s, %d coins (have %d)" % [ingredient.get("name", ""), INGREDIENT_COIN_PRICES[int(ingredient["cash"])], ingredients.get(int(ingredient["id"]), 0)]),
-			"selected": 0},
-	])
-	panel.chosen.connect(func(selections: Array[int]) -> void: _on_recipe_chosen(selections, recipes, market))
-	return panel
-
-
-func _on_recipe_chosen(selections: Array[int], recipes: Array, market: Array) -> void:
-	if selections[0] <= 0 and selections[1] <= 0:
-		return
-	if not Api.is_signed_in():
-		hud.show_message("Sign in to learn recipes and buy ingredients.")
-		return
-	if selections[1] > 0 and selections[1] <= market.size():
-		var bought := await Api.buy_ingredient(int(market[selections[1] - 1]["id"]))
-		if not bought["ok"]:
-			hud.show_message(bought["error"])
-			return
-		ingredients[int(market[selections[1] - 1]["id"])] = int(bought["data"].get("quantity", 1))
-		set_confirmed_coins(int(bought["data"].get("coins", 0)))
-	if selections[0] > 0 and selections[0] <= recipes.size():
-		var recipe: Dictionary = recipes[selections[0] - 1]
-		var learned := await Api.learn_recipe(int(recipe["id"]))
-		if not learned["ok"]:
-			hud.show_message(learned["error"])
-			return
-		_take_kitchen(learned["data"])
-		set_confirmed_coins(int(learned["data"].get("coins", 0)))
-		if _sync != null:
-			_sync.set_confirmed_points(int(learned["data"].get("gourmetPoints", 0)))
-		hud.show_message("%s is now %s." % [recipe.get("name", ""), RECIPE_LEVEL_NAMES[int(learned["data"].get("level", 1)) - 1]])
-
-
-## What can be done with a plot, for the garden form: the first is always to leave it be.
-static func plot_actions(plot: Dictionary) -> Array[String]:
-	if plot.is_empty():
-		return [GARDEN_LEAVE, "Plant a seed (%d coins)" % SEED_COST]
-	if plot.get("ripe") == true:
-		return [GARDEN_LEAVE, "Harvest"]
-	return [GARDEN_LEAVE, "Water"]
-
-
-static func describe_plot(index: int, plot: Dictionary) -> String:
-	if plot.is_empty():
-		return "Plot %d: empty" % (index + 1)
-	var plant: String = GameData.ingredient_items.get_item_by_id(int(plot.get("ingredientId", 0))).get("name", "?")
-	return "Plot %d: %s, %d of %d wet hours, soil wet for %.1f h" % [
-		index + 1, plant, int(plot.get("grownSeconds", 0)) / 3600, GROW_HOURS, float(plot.get("wetSeconds", 0)) / 3600.0]
-
-
-## GardenPlot and GardenPlotActor as a form: one row per plot the level has.
-## ponytail: plots are rows in a form, not beds drawn beside the restaurant, and a friend
-## cannot water them yet.
-func open_garden() -> void:
-	if not Api.is_signed_in():
-		hud.show_message("Sign in to garden.")
-		return
-	var result := await Api.fetch_garden()
-	if not result["ok"]:
-		hud.show_message(result["error"])
-		return
-	var garden: Dictionary = result["data"]
-	if int(garden.get("plotCount", 0)) == 0:
-		hud.show_message("Your first garden plot opens at level 7.")
-		return
-	choose_garden(garden)
-
-
-func choose_garden(garden: Dictionary) -> ChoicePanel:
-	var plots := {}
-	for plot: Dictionary in garden.get("plots", []):
-		plots[int(plot.get("plot", -1))] = plot
-	var rows: Array = []
-	for index in int(garden.get("plotCount", 0)):
-		rows.append({"label": describe_plot(index, plots.get(index, {})), "options": plot_actions(plots.get(index, {})), "selected": 0})
-	var panel: ChoicePanel = hud.open_choices("Garden", rows)
-	panel.chosen.connect(func(selections: Array[int]) -> void: _on_garden_chosen(selections, plots))
-	return panel
-
-
-func _on_garden_chosen(selections: Array[int], plots: Dictionary) -> void:
-	for index in selections.size():
-		if selections[index] <= 0:
-			continue
-		var plot: Dictionary = plots.get(index, {})
-		var action := "plant" if plot.is_empty() else ("harvest" if plot.get("ripe") == true else "water")
-		var result := await Api.tend_plot(action, index)
-		if not result["ok"]:
-			hud.show_message(result["error"])
-			return
-		if result["data"].get("coins") is float:
-			set_confirmed_coins(int(result["data"]["coins"]))
-		if action == "harvest":
-			var harvested := int(result["data"].get("ingredientId", 0))
-			ingredients[harvested] = ingredients.get(harvested, 0) + 1
-			hud.show_message("You harvested %s." % GameData.ingredient_items.get_item_by_id(harvested).get("name", "?"))
-
-
 ## The food that restores staff energy, as the Employee perks describe it.
 ## How strong a restaurant perk is right now, or 0 when it is not in effect.
 func perk_value(kind: String) -> int:
@@ -1049,54 +742,6 @@ func _take_perks(result: Dictionary) -> void:
 	for kind: String in result["data"]["perks"]:
 		var perk: Dictionary = result["data"]["perks"][kind]
 		perks[kind] = {"value": int(perk.get("value", 0)), "until": now + float(perk.get("secondsLeft", 0))}
-
-
-static func describe_perk(perk: Dictionary) -> String:
-	return "%s, %s coins: %s" % [perk.get("name", ""), perk.get("cost", "?"), perk.get("text", "")]
-
-
-## The perk shop: food for one employee, and help for the whole restaurant.
-func choose_food() -> ChoicePanel:
-	var staff: Array = []
-	for index in energy.size():
-		staff.append("Employee %d (%d%% energy)" % [index + 1, roundi(energy[index] / RestaurantPlay.MAX_WORK_TIME * 100.0)])
-	var foods: Array = [NOTHING] + GameData.perk_items.get_items(STAFF_FOOD_GROUP).map(describe_perk)
-	var helps: Array = [NOTHING] + GameData.perk_items.get_items(RESTAURANT_PERK_GROUP).map(describe_perk)
-	var panel: ChoicePanel = hud.open_choices("Perks", [
-		{"label": "Feed", "options": staff, "selected": 0},
-		{"label": "Food", "options": foods, "selected": 0},
-		{"label": "For the restaurant", "options": helps, "selected": 0},
-	])
-	panel.chosen.connect(_on_food_chosen)
-	return panel
-
-
-func _on_food_chosen(selections: Array[int]) -> void:
-	var foods := GameData.perk_items.get_items(STAFF_FOOD_GROUP)
-	var helps := GameData.perk_items.get_items(RESTAURANT_PERK_GROUP)
-	var food: Dictionary = foods[selections[1] - 1] if selections[1] > 0 and selections[1] <= foods.size() else {}
-	var help: Dictionary = helps[selections[2] - 1] if selections[2] > 0 and selections[2] <= helps.size() else {}
-	if food.is_empty() and help.is_empty():
-		return
-	if not Api.is_signed_in():
-		hud.show_message("Sign in to buy perks.")
-		return
-	if not food.is_empty() and selections[0] >= 0 and selections[0] < energy.size():
-		var fed := await Api.use_item(int(food["id"]))
-		if not fed["ok"]:
-			hud.show_message(fed["error"])
-			return
-		set_confirmed_coins(int(fed["data"].get("coins", 0)))
-		give_energy(selections[0], float(food.get("workTime", 0)))
-		_save_energy()
-	if not help.is_empty():
-		var helped := await Api.use_item(int(help["id"]))
-		if not helped["ok"]:
-			hud.show_message(helped["error"])
-			return
-		set_confirmed_coins(int(helped["data"].get("coins", 0)))
-		_take_perks({"ok": true, "data": {"perks": helped["data"].get("perks", {})}})
-		hud.show_message("%s is working for your restaurant." % help.get("name", ""))
 
 
 ## GameUserEmployee.addPerk: food tops an employee's energy up, to no more than full.
@@ -1178,109 +823,3 @@ func _build_shell() -> void:
 	_place(wall_layer, _sprite_name_of_named(WALL_CORNER_ITEM), Vector2i.ZERO, 0)
 	grid.add_wall(Vector2i.ZERO)
 
-
-## Keeps one dish sprite on every table that has a served order, showing how much is eaten.
-## The simulation only tracks the order; this draws it (DishOrder was an AnimatedObject).
-func _sync_dishes() -> void:
-	var on_tables := {}
-	for table in items_of_type(TABLE_TYPE):
-		var order := table.table_top_order
-		if order == null or not order.served:
-			continue
-		var sprite_name: String = order.recipe.get("className", "")
-		on_tables[order] = true
-		var dish: Sprite2D = _dish_sprites.get(order)
-		if dish == null:
-			if not _game_sprites.has_sprite(sprite_name):
-				continue
-			dish = _game_sprites.make_sprite(sprite_name)
-			dish.position = RoomGrid.tile_center(table.tile) - Vector2(0, table.top_height)
-			dish.z_index = table.sprite.z_index + OVER_ACTOR
-			item_layer.add_child(dish)
-			_dish_sprites[order] = dish
-		# The dish's timeline runs from a full plate to an empty one.
-		dish.frame = roundi(order.eaten * (_game_sprites.frame_count(sprite_name) - 1))
-	for order: DishOrder in _dish_sprites.keys():
-		if not on_tables.has(order):
-			_dish_sprites[order].queue_free()
-			_dish_sprites.erase(order)
-
-
-## Draws a chair's backrest over whoever sits on it (Customer.sitOnChair's chairOverlay).
-func _sync_chair_overlays() -> void:
-	for chair in items_of_type(CHAIR_TYPE):
-		var seated := chair.occupant != null and chair.occupant.is_seated()
-		var overlay: Sprite2D = _chair_overlays.get(chair)
-		if seated and overlay == null:
-			var sprite_name: String = chair.config.get("className", "") + CHAIR_OVERLAY_SUFFIX
-			if not _sprites.has_sprite(sprite_name):
-				continue
-			overlay = _place(item_layer, sprite_name, chair.tile, chair.rotation)
-			overlay.z_index = chair.sprite.z_index + OVER_ACTOR
-			_chair_overlays[chair] = overlay
-		elif not seated and overlay != null:
-			overlay.queue_free()
-			_chair_overlays.erase(chair)
-
-
-## Shows what a customer is unhappy about, as the original's bubble over their head.
-func _sync_emotions() -> void:
-	for customer in play.customers:
-		var bubble: Sprite2D = customer.get_node_or_null(EMOTION_NODE)
-		if customer.emotion == Customer.Emotion.NONE:
-			if bubble != null:
-				bubble.free()
-			continue
-		if bubble == null:
-			bubble = _game_sprites.make_sprite(EMOTION_SPRITE)
-			if bubble == null:
-				continue
-			bubble.name = EMOTION_NODE
-			bubble.position = EMOTION_OFFSET
-			customer.add_child(bubble)
-		bubble.frame = customer.emotion
-
-
-## Marks broken toilets and arcade machines until someone repairs them
-## (WorldRestaurantPlay.setRoomItemUsageCount).
-## ponytail: the "cleaner needed" sign is its first frame, not the original's animation, and
-## a broken arcade machine keeps its working look: flat sheets do not carry its "broken" clip.
-func _sync_broken_marks() -> void:
-	for item: RoomItem in _broken_marks.keys():
-		if item not in items or not item.is_broken():
-			for mark: Sprite2D in _broken_marks[item]:
-				mark.queue_free()
-			_broken_marks.erase(item)
-	for item in items:
-		if not item.is_broken() or _broken_marks.has(item):
-			continue
-		var marks: Array[Sprite2D] = []
-		if item.has_type(RestaurantPlay.TOILET_TYPE) and _sprites.has_sprite(TOILET_WATER_SPRITE):
-			var water := _place(item_layer, TOILET_WATER_SPRITE, item.tile, 0)
-			water.z_index = item.sprite.z_index - 1
-			marks.append(water)
-		var sign_sprite := _game_sprites.make_sprite(CLEANER_NEEDED_SPRITE)
-		if sign_sprite != null:
-			sign_sprite.position = RoomGrid.tile_to_screen(item.tile) - Vector2(0, RoomGrid.TILE_HEIGHT)
-			sign_sprite.z_index = item.sprite.z_index + OVER_ACTOR
-			item_layer.add_child(sign_sprite)
-			marks.append(sign_sprite)
-		_broken_marks[item] = marks
-
-
-## Draws the trash lying on the floor.
-func _sync_trash() -> void:
-	for tile: Vector2i in _trash_sprites.keys():
-		if not trash.has(tile):
-			_trash_sprites[tile].queue_free()
-			_trash_sprites.erase(tile)
-	for tile: Vector2i in trash:
-		if _trash_sprites.has(tile):
-			continue
-		var sprite := _sprites.make_sprite(trash[tile])
-		if sprite == null:
-			continue
-		sprite.position = RoomGrid.tile_center(tile)
-		sprite.z_index = RoomGrid.tile_draw_order(tile) * RoomActor.DRAW_ORDER_STEP
-		item_layer.add_child(sprite)
-		_trash_sprites[tile] = sprite

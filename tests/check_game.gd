@@ -151,12 +151,12 @@ func _check_simulation(room: RestaurantRoom) -> void:
 		seconds += SIMULATION_STEP
 		# No frames pass in this loop, so draw the room's state by hand to check the view too.
 		room._process(0.0)
-		most_dishes = maxi(most_dishes, room._dish_sprites.size())
+		most_dishes = maxi(most_dishes, room.overlays.dish_sprites.size())
 		demand_moved = demand_moved or play.demand != RestaurantPlay.DEFAULT_DEMAND
-		most_overlays = maxi(most_overlays, room._chair_overlays.size())
-		for order: DishOrder in room._dish_sprites:
+		most_overlays = maxi(most_overlays, room.overlays.chair_overlays.size())
+		for order: DishOrder in room.overlays.dish_sprites:
 			var last_frame: int = room._game_sprites.frame_count(order.recipe["className"]) - 1
-			if room._dish_sprites[order].frame == last_frame:
+			if room.overlays.dish_sprites[order].frame == last_frame:
 				saw_empty_plate = true
 		for customer in play.customers:
 			if customer.emotion != Customer.Emotion.NONE and customer.has_node("Emotion"):
@@ -318,13 +318,13 @@ func _check_functional_items(room: RestaurantRoom) -> void:
 
 	toilet.usage_count = int(toilet.config["breakCount"])
 	room._process(0.0)
-	_expect(toilet.is_broken() and room._broken_marks.has(toilet), "a toilet used %s times is broken and marked" % toilet.config["breakCount"])
+	_expect(toilet.is_broken() and room.overlays.broken_marks.has(toilet), "a toilet used %s times is broken and marked" % toilet.config["breakCount"])
 	var unlucky := _seated_customer(room, room.item_at(Vector2i(2, 5)))
 	unlucky.go_to_toilet()
 	_expect(unlucky.state == Customer.State.LEAVING and unlucky.emotion == Customer.Emotion.NO_TOILET, "with the only toilet broken a customer leaves complaining")
 	room.click_tile(toilet.tile)
 	room._process(0.0)
-	_expect(not toilet.is_broken() and room._broken_marks.is_empty(), "clicking the broken toilet repairs it")
+	_expect(not toilet.is_broken() and room.overlays.broken_marks.is_empty(), "clicking the broken toilet repairs it")
 
 	var coins_before := play.coins
 	var points_before := play.gourmet_points
@@ -360,7 +360,7 @@ func _check_trash_and_cleaner(room: RestaurantRoom) -> void:
 
 	play.add_random_trash()
 	room._process(0.0)
-	_expect(room.trash.size() == 1 and room._trash_sprites.size() == 1 and room.grid.is_walkable(room.trash.keys()[0]), "trash lands on a free floor tile and is drawn")
+	_expect(room.trash.size() == 1 and room.overlays.trash_sprites.size() == 1 and room.grid.is_walkable(room.trash.keys()[0]), "trash lands on a free floor tile and is drawn")
 	var coins_before := play.coins
 	toilet.usage_count = int(toilet.config["breakCount"])
 	var seconds := 0.0
@@ -405,14 +405,14 @@ func _check_menu_and_staff_choices(room: RestaurantRoom) -> void:
 	_expect(room.staff_jobs() == [2, 2], "level 1 has two employees however many jobs were saved")
 	room.jobs = []
 
-	var staff_panel := room.choose_staff()
+	var staff_panel := room.forms.choose_staff()
 	staff_panel.select(0, RestaurantPlay.Job.CLEANER)
 	staff_panel.finish()
 	_expect(room.jobs == [RestaurantPlay.Job.CLEANER, RestaurantPlay.Job.WAITER], "the staff form sets each employee's job")
 	_expect(room.play.chefs.is_empty() and room.play.cleaners.size() == 1, "and the restaurant reopens with that staff")
 
 	_expect(room.recipe_for("Starter").get("name") == "Tomato and Basil Soup", "by default a course is served with its first recipe")
-	var menu_panel := room.choose_menu()
+	var menu_panel := room.forms.choose_menu()
 	menu_panel.select(0, 1)
 	menu_panel.finish()
 	var second_starter: Dictionary = room.menu_choices("Starter")[1]
@@ -526,7 +526,7 @@ func _check_outdoor_area(room: RestaurantRoom) -> void:
 func _check_avatar_choice(room: RestaurantRoom) -> void:
 	_expect(RestaurantRoom.valid_look({"items": {"Hair": "No Such Hair"}, "skin": 0.0, "hair": 0.0}).is_empty(), "a saved look with unknown items is ignored")
 	_expect(RestaurantRoom.valid_look("bald").is_empty(), "a saved look of the wrong shape is ignored")
-	var panel := room.choose_avatar()
+	var panel := room.forms.choose_avatar()
 	panel.select(0, 1)
 	panel.select(RestaurantPlay.LOOK_GROUPS.size(), 3)
 	panel.finish()
@@ -558,7 +558,7 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 	_expect(play.customers.is_empty(), "a closed restaurant lets nobody in")
 	_expect(is_equal_approx(play.waiters[0].speed_scale, RestaurantPlay.TIRED_WALK_SPEED) and is_equal_approx(room.energy[1], FULL * 0.1 - 100.0), "a tired waiter walks slowly and keeps tiring")
 
-	var panel := room.choose_staff()
+	var panel := room.forms.choose_staff()
 	panel.select(0, RestaurantPlay.Job.REST)
 	panel.finish()
 	room.play.set_process(false)
@@ -569,7 +569,7 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 	room.give_energy(1, 3600.0)
 	room.give_energy(0, FULL * 2.0)
 	_expect(room.energy[1] == 3600.0 and room.energy[0] == FULL, "food restores energy, up to full")
-	var food_panel := room.choose_food()
+	var food_panel := room.forms.choose_food()
 	food_panel.select(1, 1)
 	food_panel.finish()
 	_expect(room.hud.message_label.text == "Sign in to buy perks." and room.energy[1] == 3600.0, "offline there are no coins to buy food with")
@@ -593,7 +593,7 @@ func _check_recipes(room: RestaurantRoom) -> void:
 	room.menu = {"Starter": 5000000}
 	_expect(room.recipe_for("Starter") == salad, "a saved menu dish that is not learned is not served")
 	_expect(room.learnable_recipes()[0] == salad, "known recipes come first in the form")
-	_expect(room.describe_recipe(salad).begins_with("Garden Salad, Standard (level 2); needs") and room.describe_recipe(salad).contains("Salad 1/1"), "the form shows the level and what is held, got %s" % room.describe_recipe(salad))
+	_expect(room.forms.describe_recipe(salad).begins_with("Garden Salad, Standard (level 2); needs") and room.forms.describe_recipe(salad).contains("Salad 1/1"), "the form shows the level and what is held, got %s" % room.forms.describe_recipe(salad))
 	_expect(not room.market_ingredients().is_empty() and room.market_ingredients().all(func(ingredient: Dictionary) -> bool: return ingredient.get("noCoinShop") != true), "the market sells only coin-market ingredients")
 	room.known_recipes = {}
 	room.ingredients = {}
@@ -602,12 +602,12 @@ func _check_recipes(room: RestaurantRoom) -> void:
 
 func _check_garden_form(room: RestaurantRoom) -> void:
 	var growing := {"plot": 1, "ingredientId": 4000000, "grownSeconds": 7200, "wetSeconds": 5400, "ripe": false}
-	_expect(RestaurantRoom.plot_actions({}).size() == 2 and RestaurantRoom.plot_actions({}).back().begins_with("Plant"), "an empty plot can be planted")
-	_expect(RestaurantRoom.plot_actions(growing).back() == "Water" and RestaurantRoom.plot_actions({"ripe": true}).back() == "Harvest", "a growing plot is watered and a ripe one harvested")
-	_expect(RestaurantRoom.describe_plot(1, growing) == "Plot 2: Basil, 2 of 48 wet hours, soil wet for 1.5 h", "a plot reads as its plant and progress, got %s" % RestaurantRoom.describe_plot(1, growing))
-	var panel := room.choose_garden({"plotCount": 2, "plots": [growing]})
+	_expect(RoomForms.plot_actions({}).size() == 2 and RoomForms.plot_actions({}).back().begins_with("Plant"), "an empty plot can be planted")
+	_expect(RoomForms.plot_actions(growing).back() == "Water" and RoomForms.plot_actions({"ripe": true}).back() == "Harvest", "a growing plot is watered and a ripe one harvested")
+	_expect(RoomForms.describe_plot(1, growing) == "Plot 2: Basil, 2 of 48 wet hours, soil wet for 1.5 h", "a plot reads as its plant and progress, got %s" % RoomForms.describe_plot(1, growing))
+	var panel := room.forms.choose_garden({"plotCount": 2, "plots": [growing]})
 	panel.queue_free()
-	room.open_garden()
+	room.forms.open_garden()
 	_expect(room.hud.message_label.text == "Sign in to garden.", "offline there is no garden")
 
 
@@ -663,7 +663,7 @@ func _check_awards(room: RestaurantRoom) -> void:
 	_expect(Awards.describe(Awards.Award.REMOVE_TRASH, 0) == "0 of 100 for bronze", "no trophy yet, got %s" % Awards.describe(Awards.Award.REMOVE_TRASH, 0))
 	_expect(Awards.describe(Awards.Award.REMOVE_TRASH, 150) == "150 of 1000 for silver, bronze won", "bronze won")
 	_expect(Awards.describe(Awards.Award.REMOVE_TRASH, 10000) == "10000, all trophies won", "all won")
-	var panel := room.show_awards({"1": 150.0})
+	var panel := room.forms.show_awards({"1": 150.0})
 	_expect(panel.get_child(0).get_child(1).get_child_count() == Awards.TABLE.size() * 2, "the awards form has a row per award")
 	panel.queue_free()
 	var counted: Array[int] = []
@@ -674,7 +674,7 @@ func _check_awards(room: RestaurantRoom) -> void:
 
 
 func _check_quiz_form(room: RestaurantRoom) -> void:
-	var panel := room.ask_quiz({"question": "A tomato is a?", "choices": ["Nut", "Fruit"], "rewardIngredientId": 4000002.0})
+	var panel := room.forms.ask_quiz({"question": "A tomato is a?", "choices": ["Nut", "Fruit"], "rewardIngredientId": 4000002.0})
 	_expect(panel.get_child(0).get_child(0).text == "Daily quiz: answer right to win Banana", "the quiz names its reward")
 	panel.queue_free()
 	room.click_tile(Vector2i(1, 7))
@@ -682,7 +682,7 @@ func _check_quiz_form(room: RestaurantRoom) -> void:
 
 
 func _check_food_king(room: RestaurantRoom) -> void:
-	_expect(RestaurantRoom.describe_reward({"kind": "ingredient", "id": 4000010.0}) == "Carrot (ingredient)", "a reward reads as its name and kind")
+	_expect(RoomForms.describe_reward({"kind": "ingredient", "id": 4000010.0}) == "Carrot (ingredient)", "a reward reads as its name and kind")
 	room.seat_food_king([{"kind": "recipe", "id": 5000019.0}, {"kind": "item", "id": 3020198.0}])
 	_expect(room.grid.is_walkable(room.food_king_tile) and room._food_king_sprite != null, "Greg sits on a free floor tile")
 	room.click_tile(room.food_king_tile)
