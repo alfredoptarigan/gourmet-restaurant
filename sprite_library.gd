@@ -68,6 +68,20 @@ func extent(sprite_name: String) -> Vector2:
 	return bounds(sprite_name).end
 
 
+## The first frame as a texture, for lists and buttons. Null if the sprite is missing.
+func icon(sprite_name: String) -> Texture2D:
+	if not has_sprite(sprite_name):
+		return null
+	var sheet: Texture2D = load("res://assets/sprites/%s/%s.png" % [_group, sprite_name])
+	if sheet == null:
+		return null
+	var info: Dictionary = _sprites[sprite_name]
+	var atlas := AtlasTexture.new()
+	atlas.atlas = sheet
+	atlas.region = Rect2(0, 0, int(info["width"]), int(info["height"]))
+	return atlas
+
+
 ## The first frame as an RGBA8 image, for compositing. Returns null (after logging) if missing.
 func make_image(sprite_name: String) -> Image:
 	if not has_sprite(sprite_name):

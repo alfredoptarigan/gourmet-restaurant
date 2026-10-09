@@ -86,6 +86,23 @@ func add_item(tile: Vector2i, footprint: Vector2i = Vector2i.ONE, is_door: bool 
 			_refresh(covered)
 
 
+## Undoes add_item with the same arguments.
+func remove_item(tile: Vector2i, footprint: Vector2i = Vector2i.ONE, is_door: bool = false) -> void:
+	for x in footprint.x:
+		for y in footprint.y:
+			var covered := tile + Vector2i(x, y)
+			if not contains(covered):
+				continue
+			_item_counts[covered] = maxi(0, _item_counts.get(covered, 0) - 1)
+			if is_door:
+				_doors.erase(covered)
+			_refresh(covered)
+
+
+func is_wall(tile: Vector2i) -> bool:
+	return _walls.has(tile)
+
+
 func add_wall(tile: Vector2i) -> void:
 	if _walls.has(tile):
 		return

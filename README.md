@@ -3,7 +3,8 @@
 A fan remake of a 2010 isometric restaurant game, built with Godot 4 and a small
 Hono + PostgreSQL backend. Early work in progress: a new player's restaurant runs on its
 own from the original data and art (customers come in, order, eat, and pay). You sign in to
-the backend, which keeps your account and credits the coins you earn. There is no editing yet.
+the backend, which keeps your account, credits the coins you earn, and holds your furniture.
+The Decorate button lets you move furniture and buy more with those coins.
 
 ## No game assets in this repository
 
@@ -58,11 +59,14 @@ npm test                             # needs the _test database
 ```
 
 Endpoints so far: `GET /health`, `GET /time`, `POST /auth/register`, `POST /auth/login`,
-`POST /auth/logout`, `GET /profile`, `PUT /profile`, `POST /profile/earnings`.
+`POST /auth/logout`, `GET /profile`, `PUT /profile`, `POST /profile/earnings`,
+`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`.
 
 Coins and cash are server-owned. A profile save can only change the `data` blob, and the
 client reports how many dishes were paid for, never how many coins: the server pays 2 coins
 a dish, up to the rate a full restaurant could serve in the time since the last report.
+The shop takes its prices from `data/restaurant.json`, and a saved layout may only place
+furniture the player owns.
 
 ## Layout
 

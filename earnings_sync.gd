@@ -19,10 +19,15 @@ var _sending_dishes := 0
 var _since_flush := 0.0
 
 
-func start(play: RestaurantPlay) -> void:
+func start() -> void:
 	_confirmed_coins = int(Api.profile.get("coins", 0))
 	_confirmed_points = int(Api.profile.get("gourmetPoints", 0))
-	play.dish_paid.connect(_on_dish_paid)
+	_announce()
+
+
+## The shop changed the balance: take the server's new figure.
+func set_confirmed_coins(coins: int) -> void:
+	_confirmed_coins = coins
 	_announce()
 
 
@@ -47,7 +52,8 @@ func _process(delta: float) -> void:
 		_flush()
 
 
-func _on_dish_paid() -> void:
+## A customer's meal was paid for.
+func add_dish() -> void:
 	_unsent_dishes += 1
 	_announce()
 

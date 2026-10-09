@@ -3,7 +3,10 @@ extends RefCounted
 ## A piece of furniture placed in a restaurant, with the bits of state the simulation hangs
 ## on it. Counterpart of RoomItem.as.
 
+var item_id: int
 var item_name: String
+## How many quarter turns the layout asks for (see `rotation` for what is shown).
+var turns: int
 var config: Dictionary
 ## Type flags from the item and its group, e.g. "chairItem", "tableItem", "kitchen".
 var types: Array

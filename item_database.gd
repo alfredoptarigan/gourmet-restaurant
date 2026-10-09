@@ -5,6 +5,9 @@ extends RefCounted
 
 var groups: Array = []
 
+## Item id -> {"item", "group"}, built once on load.
+var _by_id: Dictionary = {}
+
 
 static func load_from(path: String) -> ItemDatabase:
 	var database := ItemDatabase.new()
@@ -16,7 +19,26 @@ static func load_from(path: String) -> ItemDatabase:
 		push_error("ItemDatabase: %s is not a JSON array of groups" % path)
 		return database
 	database.groups = parsed
+	for group: Dictionary in database.groups:
+		for item: Dictionary in group["items"]:
+			if item.has("id"):
+				database._by_id[int(item["id"])] = {"item": item, "group": group}
 	return database
+
+
+## ItemDatabase.getItemFromId. Empty if there is no such item.
+func get_item_by_id(item_id: int) -> Dictionary:
+	return _by_id.get(item_id, {}).get("item", {})
+
+
+func get_group_name_by_id(item_id: int) -> String:
+	return _by_id.get(item_id, {}).get("group", {}).get("name", "")
+
+
+## The type flags of an item: its own plus its group's, as RoomItem's constructor merges them.
+func get_types_by_id(item_id: int) -> Array:
+	var entry: Dictionary = _by_id.get(item_id, {})
+	return entry.get("group", {}).get("types", []) + entry.get("item", {}).get("types", [])
 
 
 func get_group(group_name: String) -> Dictionary:

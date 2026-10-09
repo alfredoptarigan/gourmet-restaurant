@@ -66,6 +66,38 @@ func report_earnings(dishes: int) -> Dictionary:
 	return result
 
 
+## What the player owns: item id -> quantity.
+func fetch_inventory() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/shop/inventory")
+
+
+func buy(item_id: int) -> Dictionary:
+	return await _trade("/shop/buy", item_id)
+
+
+func sell(item_id: int) -> Dictionary:
+	return await _trade("/shop/sell", item_id)
+
+
+## Stores the restaurant's layout. The server refuses furniture the player does not own.
+func save_layout(layout: Dictionary) -> Dictionary:
+	var body := {"version": int(profile.get("version", 0)), "data": {"layout": layout}}
+	var result := await _request(HTTPClient.METHOD_PUT, "/profile", body)
+	if result["ok"]:
+		profile["version"] = result["data"].get("version", profile.get("version", 0))
+		var data: Dictionary = profile.get("data", {})
+		data["layout"] = layout
+		profile["data"] = data
+	return result
+
+
+func _trade(path: String, item_id: int) -> Dictionary:
+	var result := await _request(HTTPClient.METHOD_POST, path, {"itemId": item_id})
+	if result["ok"] and result["data"].get("coins") is float:
+		profile["coins"] = result["data"]["coins"]
+	return result
+
+
 func _sign_in(path: String, username: String, password: String) -> Dictionary:
 	var result := await _request(HTTPClient.METHOD_POST, path, {"username": username, "password": password})
 	if not result["ok"]:

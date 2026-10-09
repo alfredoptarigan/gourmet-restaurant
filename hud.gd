@@ -6,6 +6,7 @@ extends CanvasLayer
 ## matters more than the function.
 
 signal sign_out_pressed
+signal decorate_pressed
 
 const MESSAGE_SECONDS := 4.0
 
@@ -15,12 +16,14 @@ const MESSAGE_SECONDS := 4.0
 @onready var demand_label: Label = %Demand
 @onready var message_label: Label = %Message
 @onready var sign_out_button: Button = %SignOut
+@onready var decorate_button: Button = %Decorate
 
 var _message_time_left := 0.0
 
 
 func _ready() -> void:
 	sign_out_button.pressed.connect(func() -> void: sign_out_pressed.emit())
+	decorate_button.pressed.connect(func() -> void: decorate_pressed.emit())
 	message_label.text = ""
 
 

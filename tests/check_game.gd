@@ -72,7 +72,8 @@ func _check_room() -> void:
 	await get_tree().process_frame
 	_expect(room.get_node("Floor").get_child_count() == 49, "an 8x8 room has a 7x7 floor inside its walls")
 	_expect(room.get_node("Walls").get_child_count() == 29, "14 wall pieces, 14 wallpapers, and a corner")
-	_expect(room.items.size() == RestaurantRoom.DEFAULT_ITEMS.size(), "every default item should be placed, got %d" % room.items.size())
+	_expect(room.items.size() == 16, "every item of the starting layout should be placed, got %d" % room.items.size())
+	_expect(room.to_layout() == RestaurantRoom.STARTER_LAYOUT, "a freshly built room should describe itself as the starting layout")
 	_expect(not room.grid.is_walkable(Vector2i(3, 3)), "a table blocks its tile")
 	_expect(not room.grid.is_walkable(Vector2i(0, 3)), "a wall blocks its tile")
 	_expect(room.grid.is_walkable(Vector2i(0, 4)), "the door opens the wall tile it is on")
@@ -83,20 +84,21 @@ func _check_room() -> void:
 	_expect(seat != null and room.table_for_chair(seat) == room.item_at(Vector2i(3, 3)), "that chair faces the table on (3, 3)")
 	_expect(room.item_at(Vector2i(6, 3)) == room.item_at(Vector2i(6, 2)), "the stove also covers (6, 3)")
 	_expect(room.item_at(Vector2i(4, 4)) == null, "an empty tile has no item")
-	var path := room.grid.find_path(RestaurantRoom.DEFAULT_DOOR_TILE, Vector2i(4, 4))
+	var path := room.grid.find_path(Vector2i(0, 4), Vector2i(4, 4))
 	_expect(not path.is_empty() and path.all(func(step: Vector2i) -> bool: return room.grid.is_walkable(step)),
 			"the path to (4, 4) should only cross free tiles, got %s" % [path])
 	_expect(room.get_node_or_null("EarningsSync") == null, "offline, the room should not sync earnings")
 	_expect(room.hud.coins_label.text == "Coins: 0", "offline, the label starts at this session's 0 coins")
 	_expect(room.hud.level_label.text == "Level 1", "a new restaurant is level 1")
 	var sync := EarningsSync.new()
-	sync._on_dish_paid()
-	sync._on_dish_paid()
+	sync.add_dish()
+	sync.add_dish()
 	_expect(sync.shown_coins() == 4, "two unconfirmed dishes should show as 4 coins, got %d" % sync.shown_coins())
 	_expect(sync.shown_points() == 2, "two unconfirmed dishes should show as 2 gourmet points")
 	sync.free()
 	_check_avatar(room.play.waiters[0].avatar)
 	_check_simulation(room)
+	await _check_editor(room)
 	room.queue_free()
 
 
@@ -224,3 +226,43 @@ func _check_login_screen() -> void:
 	await get_tree().process_frame
 	_expect(message != null and message.text == "Enter a username and a password.", "an empty form should ask for both fields, got '%s'" % (message.text if message else ""))
 	screen.queue_free()
+
+
+func _check_editor(room: RestaurantRoom) -> void:
+	const CHAIR := 3040001
+	const WINDOW := 3000011
+	_expect(room.can_place(CHAIR, Vector2i(4, 4), 0), "a chair fits on free floor")
+	_expect(not room.can_place(CHAIR, Vector2i(3, 3), 0), "a chair does not fit on a table")
+	_expect(not room.can_place(CHAIR, Vector2i(0, 3), 0), "a chair does not fit on a wall tile")
+	_expect(not room.can_place(CHAIR, Vector2i(40, 4), 0), "a chair does not fit outside the room")
+	_expect(room.can_place(WINDOW, Vector2i(0, 3), 0), "a window fits on a bare wall tile")
+	_expect(not room.can_place(WINDOW, Vector2i(0, 2), 0), "a window does not fit where one already hangs")
+	_expect(not room.can_place(WINDOW, Vector2i(4, 4), 0), "a window does not fit on the floor")
+	_expect(not room.can_place(WINDOW, Vector2i(0, 0), 0), "nothing fits on the corner pillar")
+
+	room.hud.decorate_pressed.emit()
+	await get_tree().process_frame
+	var editor := room.editor
+	_expect(editor != null and room.play == null, "decorating closes the restaurant")
+	if editor == null:
+		return
+	_expect(editor.available(CHAIR) == 0, "all three starting chairs are placed, so none are spare")
+	var chair := room.item_at(Vector2i(2, 3))
+	editor.pick_up(chair)
+	_expect(editor.held_id == CHAIR and room.item_at(Vector2i(2, 3)) == null, "picking a chair up takes it out of the room")
+	_expect(room.grid.is_walkable(Vector2i(2, 3)), "the tile a chair left is free again")
+	_expect(not editor.place_at(Vector2i(3, 3)), "the held chair cannot go onto a table")
+	editor.rotate_held()
+	_expect(editor.place_at(Vector2i(4, 4)), "the held chair can go onto free floor")
+	var moved := room.item_at(Vector2i(4, 4))
+	_expect(moved != null and moved.item_id == CHAIR and moved.turns == 1 and not editor.is_holding(), "the chair now stands turned on (4, 4)")
+	_expect(not room.grid.is_walkable(Vector2i(4, 4)), "the tile under the moved chair is blocked")
+	editor.pick_up(room.item_at(Vector2i(4, 4)))
+	editor.store_held()
+	_expect(editor.available(CHAIR) == 1 and room.items.size() == 15, "a stored chair is spare and no longer in the room")
+	editor.hold(CHAIR)
+	editor.place_at(Vector2i(2, 3))
+	await editor.finish()
+	await get_tree().process_frame
+	_expect(room.editor == null and room.play != null, "pressing Done reopens the restaurant")
+	_expect(room.to_layout()["items"].size() == 16, "the layout still has all sixteen items")

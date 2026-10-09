@@ -48,6 +48,27 @@ func _check() -> void:
 	_expect(earned["ok"] and earned["data"].get("credited") == 1.0 and earned["data"].get("coins") == 2.0,
 			"one dish after a wait should credit 2 coins, got %s" % earned)
 
+	var inventory := await Api.fetch_inventory()
+	_expect(inventory["ok"] and inventory["data"].get("items", {}).get("3040001") == 3.0, "a new player should own three chairs, got %s" % inventory)
+	var starting: Variant = Api.profile.get("data", {}).get("layout")
+	_expect(starting is Dictionary and starting.get("items") is Array and starting["items"].size() == 16, "a new profile should carry the starting layout")
+
+	var too_dear := await Api.buy(3040001)
+	_expect(too_dear["status"] == 409 and too_dear["error"] == "Not enough coins", "a 200 coin chair cannot be bought with 2 coins, got %s" % too_dear)
+
+	if starting is Dictionary:
+		var moved: Dictionary = starting.duplicate(true)
+		moved["items"][4]["x"] = 4
+		moved["items"][4]["y"] = 4
+		var saved := await Api.save_layout(moved)
+		_expect(saved["ok"] and Api.profile.get("version") == 1.0, "moving a chair should save, got %s" % saved)
+		var greedy: Dictionary = moved.duplicate(true)
+		greedy["items"].append({"id": 3040001, "x": 5, "y": 2, "rotation": 0})
+		var refused := await Api.save_layout(greedy)
+		_expect(refused["status"] == 409, "a layout with a chair that is not owned should be refused, got %s" % refused)
+		var again := await Api.fetch_profile()
+		_expect(again["ok"] and Api.profile["data"]["layout"]["items"][4]["x"] == 4.0, "the saved layout should come back on the next fetch")
+
 	Api._set_token("")
 	var signed_in := await Api.login(username, password)
 	_expect(signed_in["ok"] and Api.profile.get("coins") == 2.0, "signing in again should show the saved coins, got %s" % Api.profile)

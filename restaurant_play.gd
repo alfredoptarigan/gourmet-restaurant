@@ -47,6 +47,7 @@ var completed_orders: Array[DishOrder] = []
 var empty_plates: Array[DishOrder] = []
 
 var _door_tile: Vector2i
+var _has_door := false
 var _arrival_timer := 0.0
 
 
@@ -55,9 +56,13 @@ static func actor_direction_for(item_rotation: int) -> int:
 
 
 ## Staffs the first kitchen with one chef and one waiter and opens the door.
-func start(restaurant_room: RestaurantRoom, door_tile: Vector2i) -> void:
+func start(restaurant_room: RestaurantRoom, door: RoomItem) -> void:
 	room = restaurant_room
-	_door_tile = door_tile
+	_has_door = door != null
+	if not _has_door:
+		push_warning("RestaurantPlay: no door, so no customers can come in")
+	else:
+		_door_tile = door.tile
 	_arrival_timer = _next_arrival_delay()
 	var kitchens := room.items_of_type(KITCHEN_TYPE)
 	if kitchens.is_empty():
@@ -155,7 +160,7 @@ func _next_arrival_delay() -> float:
 
 func _let_customers_in(delta: float) -> void:
 	_arrival_timer -= delta
-	if _arrival_timer > 0.0:
+	if _arrival_timer > 0.0 or not _has_door:
 		return
 	_arrival_timer = _next_arrival_delay()
 	var customer := Customer.new()
