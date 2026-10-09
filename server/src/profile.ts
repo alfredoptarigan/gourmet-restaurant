@@ -95,11 +95,17 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
         }
         await assertLayoutIsOwned(sql, c.get('userId'), layout.data);
       }
+      // A save that says nothing about the layout keeps the one already stored: leaving it
+      // out must not quietly reset the restaurant.
       // The version check makes a save from a stale copy (second device, retried request) fail
       // instead of silently overwriting newer data.
       const rows = await sql<{ version: number }[]>`
         update profiles
-        set data = ${sql.json(data as postgres.JSONValue)}, version = version + 1, updated_at = now()
+        set data = ${sql.json(data as postgres.JSONValue)} || case
+              when ${data.layout !== undefined} or not (data ? 'layout') then '{}'::jsonb
+              else jsonb_build_object('layout', data -> 'layout')
+            end,
+            version = version + 1, updated_at = now()
         where user_id = ${c.get('userId')} and version = ${version}
         returning version`;
       const saved: { version: number } | undefined = rows[0];

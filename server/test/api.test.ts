@@ -180,15 +180,25 @@ test('logout ends the session', async () => {
 
 test('saving the profile stores the data and bumps the version', async () => {
   const token = await register();
-  const layout = { floor: 'wood', tables: [{ x: 1, y: 2 }] };
+  const settings = { music: 'off', tutorial: { step: 3 } };
 
-  const save = await call(app, 'PUT', '/profile', { token, body: { version: 0, data: layout } });
+  const save = await call(app, 'PUT', '/profile', { token, body: { version: 0, data: settings } });
   const profile = await call(app, 'GET', '/profile', { token });
 
   assert.equal(save.status, 200);
   assert.deepEqual(save.body.data, { version: 1 });
-  assert.deepEqual(profile.body.data.data, layout);
+  assert.equal(profile.body.data.data.music, 'off');
+  assert.deepEqual(profile.body.data.data.tutorial, { step: 3 });
   assert.equal(profile.body.data.version, 1);
+});
+
+test('a save that leaves out the layout keeps the restaurant as it was', async () => {
+  const token = await register();
+
+  await call(app, 'PUT', '/profile', { token, body: { version: 0, data: { music: 'off' } } });
+  const profile = await call(app, 'GET', '/profile', { token });
+
+  assert.equal(profile.body.data.data.layout.items.length, 16);
 });
 
 test('saving from a stale version is rejected and changes nothing', async () => {
@@ -199,7 +209,7 @@ test('saving from a stale version is rejected and changes nothing', async () => 
   const profile = await call(app, 'GET', '/profile', { token });
 
   assert.equal(stale.status, 409);
-  assert.deepEqual(profile.body.data.data, { floor: 'wood' });
+  assert.equal(profile.body.data.data.floor, 'wood');
 });
 
 test('a save cannot set coins or cash', async () => {
