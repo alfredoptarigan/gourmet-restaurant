@@ -254,7 +254,7 @@ test('reporting dishes credits two coins each', async () => {
   const profile = await call(app, 'GET', '/profile', { token });
 
   assert.equal(report.status, 200);
-  assert.deepEqual(report.body.data, { credited: 3, coins: 6, gourmetPoints: 3, level: 1, levelUpReward: 0 });
+  assert.deepEqual(report.body.data, { credited: 3, creditedExtras: 0, coins: 6, gourmetPoints: 3, level: 1, levelUpReward: 0 });
   assert.equal(profile.body.data.coins, 6);
 });
 
@@ -264,7 +264,7 @@ test('dishes beyond what the elapsed time allows are not credited', async () => 
 
   const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 100 } });
 
-  assert.deepEqual(report.body.data, { credited: 28, coins: 56, gourmetPoints: 28, level: 1, levelUpReward: 0 });
+  assert.deepEqual(report.body.data, { credited: 28, creditedExtras: 0, coins: 56, gourmetPoints: 28, level: 1, levelUpReward: 0 });
 });
 
 test('nothing is credited when no time has passed', async () => {
@@ -273,7 +273,7 @@ test('nothing is credited when no time has passed', async () => {
   const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 5 } });
 
   assert.equal(report.status, 200);
-  assert.deepEqual(report.body.data, { credited: 0, coins: 0, gourmetPoints: 0, level: 1, levelUpReward: 0 });
+  assert.deepEqual(report.body.data, { credited: 0, creditedExtras: 0, coins: 0, gourmetPoints: 0, level: 1, levelUpReward: 0 });
 });
 
 test('a report uses up the allowance it drew on', async () => {
@@ -283,7 +283,7 @@ test('a report uses up the allowance it drew on', async () => {
   await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 28 } });
   const again = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 28 } });
 
-  assert.deepEqual(again.body.data, { credited: 0, coins: 56, gourmetPoints: 28, level: 1, levelUpReward: 0 });
+  assert.deepEqual(again.body.data, { credited: 0, creditedExtras: 0, coins: 56, gourmetPoints: 28, level: 1, levelUpReward: 0 });
 });
 
 test('a report that credits nothing leaves the allowance to keep building', async () => {
@@ -293,7 +293,7 @@ test('a report that credits nothing leaves the allowance to keep building', asyn
 
   const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 5 } });
 
-  assert.deepEqual(report.body.data, { credited: 5, coins: 10, gourmetPoints: 5, level: 1, levelUpReward: 0 });
+  assert.deepEqual(report.body.data, { credited: 5, creditedExtras: 0, coins: 10, gourmetPoints: 5, level: 1, levelUpReward: 0 });
 });
 
 test('allowance stops building after ten minutes away', async () => {
@@ -302,7 +302,7 @@ test('allowance stops building after ten minutes away', async () => {
 
   const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 1000 } });
 
-  assert.deepEqual(report.body.data, { credited: 280, coins: 8560, gourmetPoints: 280, level: 5, levelUpReward: 8000 });
+  assert.deepEqual(report.body.data, { credited: 280, creditedExtras: 0, coins: 8560, gourmetPoints: 280, level: 5, levelUpReward: 8000 });
 });
 
 test('each credited dish is one gourmet point', async () => {
@@ -324,8 +324,8 @@ test('reaching 50 gourmet points is level 2 and pays its 3500 coin reward once',
   await ageEarnings(600);
   const second = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 5 } });
 
-  assert.deepEqual(first.body.data, { credited: 50, coins: 3600, gourmetPoints: 50, level: 2, levelUpReward: 3500 });
-  assert.deepEqual(second.body.data, { credited: 5, coins: 3610, gourmetPoints: 55, level: 2, levelUpReward: 0 });
+  assert.deepEqual(first.body.data, { credited: 50, creditedExtras: 0, coins: 3600, gourmetPoints: 50, level: 2, levelUpReward: 3500 });
+  assert.deepEqual(second.body.data, { credited: 5, creditedExtras: 0, coins: 3610, gourmetPoints: 55, level: 2, levelUpReward: 0 });
 });
 
 test('one report can cross several levels and pays every reward on the way', async () => {
@@ -335,7 +335,20 @@ test('one report can cross several levels and pays every reward on the way', asy
   const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 100 } });
 
   // Levels 2, 3, and 4 start at 50, 70, and 100 points and pay 3500, 2500, and 1000.
-  assert.deepEqual(report.body.data, { credited: 100, coins: 7200, gourmetPoints: 100, level: 4, levelUpReward: 7000 });
+  assert.deepEqual(report.body.data, { credited: 100, creditedExtras: 0, coins: 7200, gourmetPoints: 100, level: 4, levelUpReward: 7000 });
+});
+
+test('extras pay one coin and one gourmet point each, after the dishes', async () => {
+  const token = await register();
+  await ageEarnings(60);
+
+  const report = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 27, extras: 5 } });
+  const onlyExtras = await call(app, 'POST', '/profile/earnings', { token, body: { dishes: 0, extras: 1 } });
+
+  // A minute allows 28 payouts: all 27 dishes, then one of the extras.
+  assert.deepEqual(report.body.data, { credited: 27, creditedExtras: 1, coins: 55, gourmetPoints: 28, level: 1, levelUpReward: 0 });
+  assert.equal(onlyExtras.status, 200);
+  assert.equal(onlyExtras.body.data.creditedExtras, 0);
 });
 
 test('earnings only reach the signed-in player', async () => {
@@ -353,7 +366,7 @@ test('an earnings report must be a whole number of dishes from 1 to 1000', async
   const token = await register();
   await ageEarnings(60);
 
-  for (const body of [{ dishes: 0 }, { dishes: -1 }, { dishes: 1.5 }, { dishes: '3' }, { dishes: 1001 }, {}, { dishes: 1, coins: 99 }]) {
+  for (const body of [{ dishes: 0 }, { dishes: -1 }, { dishes: 1.5 }, { dishes: '3' }, { dishes: 1001 }, {}, { dishes: 1, coins: 99 }, { dishes: 1, extras: -1 }, { dishes: 0, extras: 0 }]) {
     const report = await call(app, 'POST', '/profile/earnings', { token, body });
     assert.equal(report.status, 400, JSON.stringify(body));
   }

@@ -95,6 +95,8 @@ func _check_room() -> void:
 	sync.add_dish()
 	_expect(sync.shown_coins() == 4, "two unconfirmed dishes should show as 4 coins, got %d" % sync.shown_coins())
 	_expect(sync.shown_points() == 2, "two unconfirmed dishes should show as 2 gourmet points")
+	sync.add_extra()
+	_expect(sync.shown_coins() == 5 and sync.shown_points() == 3, "an arcade play should show as 1 coin and 1 gourmet point")
 	sync.free()
 	var sounds_wanted := {}
 	room.play.sound_wanted.connect(func(sound_name: String) -> void: sounds_wanted[sound_name] = true)
@@ -107,6 +109,7 @@ func _check_room() -> void:
 	Sounds.play("NoSuchSound")
 	_check_staffing(room)
 	_check_waiting_for_a_table(room)
+	_check_functional_items(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -259,11 +262,73 @@ func _check_staffing(room: RestaurantRoom) -> void:
 	_expect(room.play.chefs.size() == 1 and room.play.waiters.size() == 1, "level 1 has one chef and one waiter")
 
 
-func _seated_customer(room: RestaurantRoom, chair: RoomItem) -> Customer:
+## Ticks the customer in small steps until it reaches `state`, for at most `seconds`.
+func _tick_until(customer: Customer, state: int, seconds: float = 60.0) -> bool:
+	var waited := 0.0
+	while customer.state != state and waited < seconds:
+		customer.tick(SIMULATION_STEP)
+		waited += SIMULATION_STEP
+	return customer.state == state
+
+
+func _check_functional_items(room: RestaurantRoom) -> void:
+	const TOILET := 3500021
+	const SINK := 3020053
+	const ARCADE := 3020043
+	room.stop_play()
+	var toilet := room.place_item(TOILET, Vector2i(5, 7), 0)
+	var sink := room.place_item(SINK, Vector2i(3, 1), 0)
+	var arcade := room.place_item(ARCADE, Vector2i(2, 7), 0)
+	room.level = RestaurantPlay.TOILET_START_LEVEL
+	room.start_play()
+	var play := room.play
+	play.set_process(false)
+	_expect(toilet not in play.empty_chairs(false, false), "a toilet is not a seat to eat on")
+
+	var visitor := _seated_customer(room, room.item_at(Vector2i(2, 3)))
+	visitor.go_to_toilet()
+	_expect(_tick_until(visitor, Customer.State.ON_TOILET) and visitor.chair == toilet and visitor.is_seated(), "a customer should walk to the toilet and sit on it")
+	_expect(_tick_until(visitor, Customer.State.WALKING_TO_SINK, Customer.TOILET_TIME + 1.0) and toilet.usage_count == 1 and toilet.occupant == null,
+			"after the toilet the customer should head for the sink, having used the toilet once")
+	_expect(_tick_until(visitor, Customer.State.USING_SINK) and sink.occupant == visitor, "the customer should wash at the sink")
+	_expect(_tick_until(visitor, Customer.State.LEAVING, Customer.SINK_TIME + 1.0) and visitor.left_happy and sink.occupant == null, "and then leave happy")
+
+	toilet.usage_count = int(toilet.config["breakCount"])
+	room._process(0.0)
+	_expect(toilet.is_broken() and room._broken_marks.has(toilet), "a toilet used %s times is broken and marked" % toilet.config["breakCount"])
+	var unlucky := _seated_customer(room, room.item_at(Vector2i(2, 5)))
+	unlucky.go_to_toilet()
+	_expect(unlucky.state == Customer.State.LEAVING and unlucky.emotion == Customer.Emotion.NO_TOILET, "with the only toilet broken a customer leaves complaining")
+	room.click_tile(toilet.tile)
+	room._process(0.0)
+	_expect(not toilet.is_broken() and room._broken_marks.is_empty(), "clicking the broken toilet repairs it")
+
+	var coins_before := play.coins
+	var points_before := play.gourmet_points
+	var player := _new_customer(room)
+	_expect(player.walk_to_arcade() and arcade.occupant == player, "a customer can head for a free arcade machine")
+	_expect(_tick_until(player, Customer.State.PLAYING) and player.tile == Vector2i(3, 7), "and plays it from the tile in front")
+	_expect(_tick_until(player, Customer.State.LEAVING, Customer.PLAYING_TIME + 1.0), "then leaves")
+	_expect(play.coins == coins_before + 1 and play.gourmet_points == points_before + 1.0 and arcade.usage_count == 1 and arcade.occupant == null,
+			"a play pays 1 coin and 1 gourmet point and wears the machine")
+
+	room.stop_play()
+	for item: RoomItem in [toilet, sink, arcade]:
+		room.remove_item(item)
+	room.level = 1
+	room.start_play()
+
+
+func _new_customer(room: RestaurantRoom) -> Customer:
 	var customer := Customer.new()
 	room.play._add_actor(customer, [])
 	room.play.customers.append(customer)
 	customer.enter(room.play, Vector2i(0, 4))
+	return customer
+
+
+func _seated_customer(room: RestaurantRoom, chair: RoomItem) -> Customer:
+	var customer := _new_customer(room)
 	customer.take_chair(chair)
 	customer.place_on(chair.tile)
 	customer.tick(0.0)

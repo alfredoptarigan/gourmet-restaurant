@@ -25,11 +25,18 @@ const MAX_ALLOWANCE_SECONDS = 600;
 const MAX_REPORTED_DISHES = 1000;
 // GameWorld.GOURMET_POINTS_PER_DISH, for a level 1 recipe.
 const GOURMET_POINTS_PER_DISH = 1;
+// GameWorld.COINS_PAYOUT_FUNCTIONAL_ITEMS and GOURMET_POINTS_PER_FUNCTIONAL_ITEM_PAYOUT.
+const COINS_PER_EXTRA = 1;
+const GOURMET_POINTS_PER_EXTRA = 1;
 
 // The client says how many dishes were paid for, never how many coins that is worth.
-const earningsSchema = z.strictObject({
-  dishes: z.number().int().min(1).max(MAX_REPORTED_DISHES),
-});
+// Extras are the small payouts that are not meals: a customer playing an arcade machine.
+const earningsSchema = z
+  .strictObject({
+    dishes: z.number().int().min(0).max(MAX_REPORTED_DISHES),
+    extras: z.number().int().min(0).max(MAX_REPORTED_DISHES).default(0),
+  })
+  .refine((report) => report.dishes + report.extras > 0, { message: 'Report at least one dish or extra' });
 
 type ProfileRow = {
   username: string;
@@ -117,7 +124,7 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
   );
 
   routes.post('/earnings', async (c) => {
-    const { dishes } = await parseBody(c, earningsSchema);
+    const { dishes, extras } = await parseBody(c, earningsSchema);
     const userId = c.get('userId');
     // The row is locked for the whole read-decide-write, so two reports arriving together
     // cannot both spend the same allowance or both collect the same level-up reward.
@@ -130,20 +137,24 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
         throw new ApiError(404, 'Profile not found');
       }
       const allowance = Math.floor((Math.min(Number(before.elapsed), MAX_ALLOWANCE_SECONDS) * MAX_DISHES_PER_MINUTE) / 60);
+      // Dishes and extras draw on the same allowance, dishes first.
       const credited = Math.max(0, Math.min(dishes, allowance));
-      const gourmetPoints = before.gourmet_points + credited * GOURMET_POINTS_PER_DISH;
+      const creditedExtras = Math.max(0, Math.min(extras, allowance - credited));
+      const gourmetPoints =
+        before.gourmet_points + credited * GOURMET_POINTS_PER_DISH + creditedExtras * GOURMET_POINTS_PER_EXTRA;
       const level = levelFor(gourmetPoints);
       const levelUpReward = rewardBetween(levelFor(before.gourmet_points), level);
-      const coins = Number(before.coins) + credited * COINS_PER_DISH + levelUpReward;
+      const coins =
+        Number(before.coins) + credited * COINS_PER_DISH + creditedExtras * COINS_PER_EXTRA + levelUpReward;
       // The clock only restarts when something was credited: a report that came too early
       // must not push the next payout further away.
-      if (credited > 0) {
+      if (credited + creditedExtras > 0) {
         await transaction`
           update profiles
           set coins = ${coins}, gourmet_points = ${gourmetPoints}, last_earned_at = now()
           where user_id = ${userId}`;
       }
-      return { credited, coins, gourmetPoints, level, levelUpReward };
+      return { credited, creditedExtras, coins, gourmetPoints, level, levelUpReward };
     });
     return ok(c, earned);
   });

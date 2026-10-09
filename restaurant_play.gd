@@ -8,6 +8,8 @@ extends Node
 signal coins_changed(coins: int)
 ## A customer's meal was paid for (its plate was cleared).
 signal dish_paid
+## An arcade machine was paid for.
+signal extra_paid
 ## Something happened that the original marks with a sound; the value is the sound's name.
 signal sound_wanted(sound_name: String)
 
@@ -28,6 +30,14 @@ const MENU_GROUPS: Array[String] = ["Starter", "Main", "Dessert"]
 
 const CHAIR_TYPE := "chairItem"
 const KITCHEN_TYPE := "kitchen"
+const TOILET_TYPE := "toilet"
+const SINK_TYPE := "sink"
+const INTERACTIVE_TYPE := "interactive"
+## GameWorld.TOILET_START_LEVEL: customers start asking for a toilet at this level.
+const TOILET_START_LEVEL := 8
+## GameWorld.COINS_PAYOUT_FUNCTIONAL_ITEMS and GOURMET_POINTS_PER_FUNCTIONAL_ITEM_PAYOUT.
+const COINS_PER_EXTRA := 1
+const GOURMET_POINTS_PER_EXTRA := 1.0
 const SKIN_COLOURS: Array[Color] = [Color("ffece9"), Color("ffdbc0"), Color("e8b98f"), Color("a8703f")]
 const HAIR_COLOURS: Array[Color] = [Color("5a3a22"), Color("2b1b12"), Color("c9a25a"), Color("8a3b1f")]
 const LOOK_GROUPS: Array[String] = ["Hair", "Shirt", "Pants", "Eyes", "Mouth"]
@@ -114,13 +124,57 @@ func tick(delta: float) -> void:
 func empty_chairs(with_table: bool, with_free_table: bool) -> Array[RoomItem]:
 	var chairs: Array[RoomItem] = []
 	for chair in room.items_of_type(CHAIR_TYPE):
-		if chair.occupant != null:
+		if chair.occupant != null or chair.has_type(TOILET_TYPE):
 			continue
 		var table := room.table_for_chair(chair)
 		if with_table and (table == null or (with_free_table and not is_table_free(table))):
 			continue
 		chairs.append(chair)
 	return chairs
+
+
+## Toilets, sinks, or arcade machines nobody is using, and that still work.
+func empty_items(type: String) -> Array[RoomItem]:
+	var free: Array[RoomItem] = []
+	for item in room.items_of_type(type):
+		if item.occupant == null and not item.is_broken():
+			free.append(item)
+	return free
+
+
+## WorldRestaurant.getInteractiveItemUserTile: where a customer stands to play a machine.
+static func interactive_user_tile(item: RoomItem) -> Vector2i:
+	match posmod(item.rotation, 4):
+		0:
+			return item.tile + Vector2i(item.footprint.x, 0)
+		1:
+			return item.tile + Vector2i(0, item.footprint.y)
+		2:
+			return item.tile + Vector2i(-1, 0)
+	return item.tile + Vector2i(0, -1)
+
+
+## WorldRestaurantPlay.setRoomItemUsageCount: every use brings a breakable item closer to breaking.
+func use_item(item: RoomItem) -> void:
+	item.usage_count += 1
+
+
+## WorldRestaurantPlay.fixBreakableItem.
+func fix_item(item: RoomItem) -> void:
+	item.usage_count = 0
+
+
+## WorldRestaurantPlay.onCustomerPayForFunctional.
+func pay_for_functional() -> void:
+	_pay_extra()
+
+
+func _pay_extra() -> void:
+	coins += COINS_PER_EXTRA
+	gourmet_points += GOURMET_POINTS_PER_EXTRA
+	coins_changed.emit(coins)
+	extra_paid.emit()
+	sound_wanted.emit("SfxCash")
 
 
 ## WorldRestaurant.isTableFree.

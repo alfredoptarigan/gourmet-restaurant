@@ -23,6 +23,8 @@ const WALL_DECORATION_TYPE := "wallDecorationItem"
 const CHAIR_OVERLAY_SUFFIX := "Overlay"
 const EMOTION_SPRITE := "Emotions"
 const EMOTION_NODE := "Emotion"
+const TOILET_WATER_SPRITE := "ToiletWater"
+const CLEANER_NEEDED_SPRITE := "CleanerNeeded"
 ## Above the head of a standing character, in original-game pixels from its tile.
 const EMOTION_OFFSET := Vector2(0, -52)
 ## Where the middle of the floor sits on the 760 x 600 stage.
@@ -75,6 +77,8 @@ var _game_sprites := SpriteLibrary.load_group("game")
 var _sync: EarningsSync
 var _dish_sprites: Dictionary = {}
 var _chair_overlays: Dictionary = {}
+## Broken item -> the sprites that mark it as broken.
+var _broken_marks: Dictionary = {}
 ## Gourmet points from earlier openings this session, when playing offline.
 var _offline_points := 0
 
@@ -119,6 +123,7 @@ func _process(_delta: float) -> void:
 	_sync_dishes()
 	_sync_chair_overlays()
 	_sync_emotions()
+	_sync_broken_marks()
 	hud.set_demand(play.demand)
 
 
@@ -126,6 +131,17 @@ func _process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and event.button_mask & SCROLL_BUTTONS != 0:
 		position += event.relative
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and play != null:
+		click_tile(RoomGrid.screen_to_tile(get_local_mouse_position()))
+
+
+## A click while the restaurant is open repairs the broken toilet or arcade machine there.
+## ponytail: the repair is instant and the click goes by floor tile, not by the item's art.
+## The original queues a task for the player's own avatar, which is not in the room yet.
+func click_tile(tile: Vector2i) -> void:
+	var item := item_at(tile)
+	if item != null and item.is_broken():
+		play.fix_item(item)
 
 
 func items_of_type(type: String) -> Array[RoomItem]:
@@ -244,9 +260,12 @@ func start_play() -> void:
 	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
 		play.dish_paid.connect(_sync.add_dish)
+		play.extra_paid.connect(_sync.add_extra)
 	else:
+		var show_progress := func() -> void: _on_progress(_offline_points + int(play.gourmet_points))
 		play.coins_changed.connect(hud.set_coins)
-		play.dish_paid.connect(func() -> void: _on_progress(_offline_points + int(play.gourmet_points)))
+		play.dish_paid.connect(show_progress)
+		play.extra_paid.connect(show_progress)
 
 
 ## Closes it: everyone leaves at once and the furniture forgets them.
@@ -437,3 +456,30 @@ func _sync_emotions() -> void:
 			bubble.position = EMOTION_OFFSET
 			customer.add_child(bubble)
 		bubble.frame = customer.emotion
+
+
+## Marks broken toilets and arcade machines until someone repairs them
+## (WorldRestaurantPlay.setRoomItemUsageCount).
+## ponytail: the "cleaner needed" sign is its first frame, not the original's animation, and
+## a broken arcade machine keeps its working look: flat sheets do not carry its "broken" clip.
+func _sync_broken_marks() -> void:
+	for item: RoomItem in _broken_marks.keys():
+		if item not in items or not item.is_broken():
+			for mark: Sprite2D in _broken_marks[item]:
+				mark.queue_free()
+			_broken_marks.erase(item)
+	for item in items:
+		if not item.is_broken() or _broken_marks.has(item):
+			continue
+		var marks: Array[Sprite2D] = []
+		if item.has_type(RestaurantPlay.TOILET_TYPE) and _sprites.has_sprite(TOILET_WATER_SPRITE):
+			var water := _place(item_layer, TOILET_WATER_SPRITE, item.tile, 0)
+			water.z_index = item.sprite.z_index - 1
+			marks.append(water)
+		var sign_sprite := _game_sprites.make_sprite(CLEANER_NEEDED_SPRITE)
+		if sign_sprite != null:
+			sign_sprite.position = RoomGrid.tile_to_screen(item.tile) - Vector2(0, RoomGrid.TILE_HEIGHT)
+			sign_sprite.z_index = item.sprite.z_index + OVER_ACTOR
+			item_layer.add_child(sign_sprite)
+			marks.append(sign_sprite)
+		_broken_marks[item] = marks

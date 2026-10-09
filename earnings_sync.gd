@@ -11,11 +11,16 @@ signal leveled_up(level: int, coin_reward: int)
 const FLUSH_INTERVAL := 5.0
 ## Only for the display while a report is on its way; the server sets the real value.
 const COINS_PER_DISH := 2
+const COINS_PER_EXTRA := 1
 
 var _confirmed_coins := 0
 var _confirmed_points := 0
 var _unsent_dishes := 0
 var _sending_dishes := 0
+## Arcade plays: one coin and one gourmet point each.
+var _unsent_extras := 0
+var _sending_extras := 0
+var _sending := false
 var _since_flush := 0.0
 
 
@@ -32,12 +37,13 @@ func set_confirmed_coins(coins: int) -> void:
 
 
 func shown_coins() -> int:
-	return _confirmed_coins + (_unsent_dishes + _sending_dishes) * COINS_PER_DISH
+	return (_confirmed_coins + (_unsent_dishes + _sending_dishes) * COINS_PER_DISH
+			+ (_unsent_extras + _sending_extras) * COINS_PER_EXTRA)
 
 
-## Each dish is one gourmet point, counted as soon as it is paid for.
+## Each dish or extra is one gourmet point, counted as soon as it is paid for.
 func shown_points() -> int:
-	return _confirmed_points + _unsent_dishes + _sending_dishes
+	return _confirmed_points + _unsent_dishes + _sending_dishes + _unsent_extras + _sending_extras
 
 
 func _announce() -> void:
@@ -47,7 +53,7 @@ func _announce() -> void:
 
 func _process(delta: float) -> void:
 	_since_flush += delta
-	if _since_flush >= FLUSH_INTERVAL and _unsent_dishes > 0 and _sending_dishes == 0:
+	if _since_flush >= FLUSH_INTERVAL and _unsent_dishes + _unsent_extras > 0 and not _sending:
 		_since_flush = 0.0
 		_flush()
 
@@ -58,25 +64,37 @@ func add_dish() -> void:
 	_announce()
 
 
+## A customer paid for something other than a meal.
+func add_extra() -> void:
+	_unsent_extras += 1
+	_announce()
+
+
 ## ponytail: dishes paid in the last few seconds before the game closes are not reported.
 ## Flush on quit (and hold the window open for it) if that ever matters.
 func _flush() -> void:
+	_sending = true
 	_sending_dishes = _unsent_dishes
+	_sending_extras = _unsent_extras
 	_unsent_dishes = 0
-	var result := await Api.report_earnings(_sending_dishes)
+	_unsent_extras = 0
+	var result := await Api.report_earnings(_sending_dishes, _sending_extras)
 	if result["ok"]:
 		# The server pays out against elapsed time, so a report can be credited only in part.
 		# The rest is real earnings that arrived too early: keep it for the next report.
-		var credited := clampi(int(result["data"].get("credited", 0)), 0, _sending_dishes)
-		_unsent_dishes += _sending_dishes - credited
+		_unsent_dishes += _sending_dishes - clampi(int(result["data"].get("credited", 0)), 0, _sending_dishes)
+		_unsent_extras += _sending_extras - clampi(int(result["data"].get("creditedExtras", 0)), 0, _sending_extras)
 		_confirmed_coins = int(result["data"].get("coins", _confirmed_coins))
 		_confirmed_points = int(result["data"].get("gourmetPoints", _confirmed_points))
 		var reward := int(result["data"].get("levelUpReward", 0))
 		if reward > 0:
 			leveled_up.emit(int(result["data"].get("level", 1)), reward)
 	else:
-		# Not delivered: keep the dishes and try again on the next flush.
+		# Not delivered: keep everything and try again on the next flush.
 		push_warning("EarningsSync: could not report earnings (%s)" % result["error"])
 		_unsent_dishes += _sending_dishes
+		_unsent_extras += _sending_extras
 	_sending_dishes = 0
+	_sending_extras = 0
+	_sending = false
 	_announce()

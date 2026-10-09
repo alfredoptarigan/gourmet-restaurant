@@ -19,13 +19,26 @@ var sprite: Sprite2D
 ## How far above the floor the item's top is: where a dish on a table sits.
 var top_height := 0.0
 
-## Chair: who sits here, or is walking over to.
+## Chair, toilet, sink, or arcade machine: who uses it, or is walking over to.
 var occupant: Customer
 ## Table: the dish, or empty plate, standing on it.
 var table_top_order: DishOrder
 ## Kitchen: a cooked dish waiting for a waiter. The stove is blocked until it is taken.
 var ready_order: DishOrder
+## Toilet or arcade machine: uses since it was last cleaned or repaired.
+var usage_count := 0
 
 
 func has_type(type: String) -> bool:
 	return type in types
+
+
+## RoomItem.isBroken: a toilet or arcade machine stops working after `breakCount` uses.
+func is_broken() -> bool:
+	var break_count := int(config.get("breakCount", 0))
+	return break_count > 0 and usage_count >= break_count
+
+
+## WorldRestaurantPlay.getModifiedOperateTime: better items are quicker to use.
+func operate_time(seconds: float) -> float:
+	return seconds * float(config.get("operateTimePercentage", 100)) / 100.0

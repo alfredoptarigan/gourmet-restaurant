@@ -57,10 +57,10 @@ func fetch_profile() -> Dictionary:
 	return result
 
 
-## Tells the server how many dishes were paid for. It answers with how many it credited
-## and the new coin total; the server alone decides what a dish is worth.
-func report_earnings(dishes: int) -> Dictionary:
-	var result := await _request(HTTPClient.METHOD_POST, "/profile/earnings", {"dishes": dishes})
+## Tells the server how many dishes and extras (arcade plays) were paid for. It answers with
+## how many it credited and the new coin total; the server alone decides what each is worth.
+func report_earnings(dishes: int, extras: int = 0) -> Dictionary:
+	var result := await _request(HTTPClient.METHOD_POST, "/profile/earnings", {"dishes": dishes, "extras": extras})
 	if result["ok"] and result["data"].get("coins") is float:
 		profile["coins"] = result["data"]["coins"]
 	return result
