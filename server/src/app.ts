@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { authRoutes } from './auth.ts';
+import { awardRoutes } from './awards.ts';
 import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
 import { gardenRoutes } from './garden.ts';
@@ -45,6 +46,7 @@ export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, authRateLim
   app.route('/shop', shopRoutes(sql, catalog));
   app.route('/kitchen', kitchenRoutes(sql, cookbook));
   app.route('/garden', gardenRoutes(sql, cookbook));
+  app.route('/awards', awardRoutes(sql));
 
   return app;
 }

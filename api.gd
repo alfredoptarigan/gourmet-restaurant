@@ -114,6 +114,16 @@ func tend_plot(action: String, plot: int) -> Dictionary:
 	return await _trade_coins(HTTPClient.METHOD_POST, "/garden/" + action, {"plot": plot})
 
 
+## How far the player has got with each award: award number (as a string) -> count.
+func fetch_awards() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/awards")
+
+
+## Counts towards an award that only the game itself sees, like picking up trash.
+func report_award(award: int, amount: int = 1) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/awards/progress", {"award": award, "amount": amount})
+
+
 ## Pays for something that is used up at once, like food for the staff.
 func use_item(item_id: int) -> Dictionary:
 	return await _trade("/shop/use", item_id)

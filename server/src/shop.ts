@@ -6,6 +6,7 @@ import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
 import { ApiError, ok, parseBody } from './http.ts';
 import { levelFor } from './levels.ts';
+import { Award, addAward } from './awards.ts';
 
 // GameWorld.getSellPrice: an item sells for a third of what it cost.
 const SELL_PRICE_DIVISOR = 3;
@@ -162,7 +163,11 @@ export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
         insert into owned_items (user_id, item_id, quantity) values (${userId}, ${itemId}, 1)
         on conflict (user_id, item_id) do update set quantity = owned_items.quantity + 1
         returning quantity`;
-      return { coins: Number(paid[0].coins), quantity: owned[0].quantity };
+      const trophies = [
+        ...(await addAward(transaction, userId, Award.SPEND_COIN, item.cost)),
+        ...(await addAward(transaction, userId, item.outdoor ? Award.BUY_OUTDOOR_ITEM : Award.BUY_INDOOR_ITEM, 1)),
+      ];
+      return { coins: Number(paid[0].coins), quantity: owned[0].quantity, trophies };
     });
     return ok(c, result);
   });
@@ -175,14 +180,19 @@ export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
     if (!item.consumable) {
       throw new ApiError(404, 'This item cannot be used');
     }
-    const paid = await sql<{ coins: string }[]>`
-      update profiles set coins = coins - ${item.cost}
-      where user_id = ${c.get('userId')} and coins >= ${item.cost}
-      returning coins`;
-    if (paid.length === 0) {
-      throw new ApiError(409, 'Not enough coins');
-    }
-    return ok(c, { coins: Number(paid[0].coins) });
+    const userId = c.get('userId');
+    const coins = await sql.begin(async (transaction) => {
+      const paid = await transaction<{ coins: string }[]>`
+        update profiles set coins = coins - ${item.cost}
+        where user_id = ${userId} and coins >= ${item.cost}
+        returning coins`;
+      if (paid.length === 0) {
+        throw new ApiError(409, 'Not enough coins');
+      }
+      await addAward(transaction, userId, Award.SPEND_COIN, item.cost);
+      return Number(paid[0].coins);
+    });
+    return ok(c, { coins });
   });
 
   routes.post('/sell', async (c) => {

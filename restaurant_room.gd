@@ -8,7 +8,6 @@ extends Node2D
 ## (WorldRestaurant.addDefaultWalls, fillBaseArea).
 
 const LOGIN_SCENE := "res://login.tscn"
-const RESTAURANT_MUSIC := "MusicRestaurant"
 const EDITOR_MUSIC := "MusicEditor"
 const LEVEL_UP_SOUND := "SfxLevelUp"
 const WALL_ITEM := "White Walls"
@@ -36,6 +35,7 @@ const MUSIC_KEY := "music"
 ## The music the shop sells, and the type of the furniture that plays it.
 const MUSIC_GROUP := "Music"
 const MUSIC_PLAYER_TYPE := "musicPlayer"
+const ACHIEVEMENT_TYPE := "achievementItem"
 ## The perk group of the food that restores staff energy.
 const STAFF_FOOD_GROUP := "Employee"
 ## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
@@ -353,6 +353,9 @@ func click_tile(tile: Vector2i) -> void:
 		if standing.has_type(MUSIC_PLAYER_TYPE):
 			choose_music()
 			return
+		if standing.has_type(ACHIEVEMENT_TYPE):
+			open_awards()
+			return
 	if item != null and item.is_broken():
 		play.fix_item(item)
 
@@ -383,6 +386,25 @@ func choose_music() -> ChoicePanel:
 		if selections[0] >= 0 and selections[0] < choices.size():
 			set_music(int(choices[selections[0]]["id"])))
 	return panel
+
+
+## The achievement panel on the wall shows how far the player has got with each award.
+func open_awards() -> void:
+	if not Api.is_signed_in():
+		hud.show_message("Sign in to win awards.")
+		return
+	var result := await Api.fetch_awards()
+	if not result["ok"]:
+		hud.show_message(result["error"])
+		return
+	show_awards(result["data"].get("progress", {}))
+
+
+func show_awards(progress: Dictionary) -> ChoicePanel:
+	var rows: Array = []
+	for award: int in Awards.TABLE:
+		rows.append({"label": Awards.TABLE[award][0], "options": [Awards.describe(award, int(progress.get(str(award), 0)))], "selected": 0})
+	return hud.open_choices("Awards", rows)
 
 
 func set_music(item_id: int) -> void:
@@ -566,6 +588,7 @@ func start_play() -> void:
 	play.sound_wanted.connect(Sounds.play)
 	_play_music()
 	if _sync != null:
+		play.award_progressed.connect(func(award: int) -> void: Api.report_award(award))
 		play.dish_paid.connect(_sync.add_dish)
 		play.extra_paid.connect(_sync.add_extra)
 	else:

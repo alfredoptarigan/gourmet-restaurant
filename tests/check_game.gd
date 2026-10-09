@@ -123,6 +123,7 @@ func _check_room() -> void:
 	_check_garden_form(room)
 	_check_stacking_and_painting(room)
 	_check_music(room)
+	_check_awards(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -652,6 +653,20 @@ func _check_music(room: RestaurantRoom) -> void:
 	room.remove_item(jukebox)
 	room.music_id = 0
 	room.owned_music = {}
+
+
+func _check_awards(room: RestaurantRoom) -> void:
+	_expect(Awards.describe(Awards.Award.REMOVE_TRASH, 0) == "0 of 100 for bronze", "no trophy yet, got %s" % Awards.describe(Awards.Award.REMOVE_TRASH, 0))
+	_expect(Awards.describe(Awards.Award.REMOVE_TRASH, 150) == "150 of 1000 for silver, bronze won", "bronze won")
+	_expect(Awards.describe(Awards.Award.REMOVE_TRASH, 10000) == "10000, all trophies won", "all won")
+	var panel := room.show_awards({"1": 150.0})
+	_expect(panel.get_child(0).get_child(1).get_child_count() == Awards.TABLE.size() * 2, "the awards form has a row per award")
+	panel.queue_free()
+	var counted: Array[int] = []
+	room.play.award_progressed.connect(func(award: int) -> void: counted.append(award))
+	room.trash[Vector2i(4, 4)] = "SodaCan"
+	room.play.remove_trash(Vector2i(4, 4))
+	_expect(counted == [Awards.Award.REMOVE_TRASH], "picking up trash counts towards its award")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

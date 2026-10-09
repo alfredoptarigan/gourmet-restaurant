@@ -6,6 +6,7 @@ import type { Sql } from './db.ts';
 import { ApiError, ok, parseBody } from './http.ts';
 import type { Cookbook } from './kitchen.ts';
 import { levelFor } from './levels.ts';
+import { Award, addAward } from './awards.ts';
 
 // GardenPlot: a plant needs 48 wet hours, a watering keeps the soil wet for 3 hours, the soil
 // holds at most 9 hours of water, and a seed costs 2000 coins.
@@ -87,6 +88,7 @@ export function gardenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
       if (planted.length === 0) {
         throw new ApiError(409, 'Something already grows there');
       }
+      await addAward(transaction, userId, Award.SPEND_COIN, SEED_COST);
     });
     return ok(c, await garden(userId));
   });
@@ -123,6 +125,7 @@ export function gardenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
       await transaction`
         insert into owned_ingredients (user_id, ingredient_id, quantity) values (${userId}, ${current.ingredientId}, 1)
         on conflict (user_id, ingredient_id) do update set quantity = owned_ingredients.quantity + 1`;
+      await addAward(transaction, userId, Award.HARVEST, 1);
       return current.ingredientId;
     });
     return ok(c, { ingredientId: harvested, ...(await garden(userId)) });

@@ -7,6 +7,7 @@ import { requireAuth, type AuthEnv } from './auth.ts';
 import type { Sql } from './db.ts';
 import { ApiError, describeIssues, ok, parseBody } from './http.ts';
 import { levelFor, rewardBetween } from './levels.ts';
+import { Award, addAward } from './awards.ts';
 
 // WorldRecipeMenu.RECIPE_LEVEL_NAMES runs from Simple (1) to Royal (10).
 export const MAX_RECIPE_LEVEL = 10;
@@ -195,6 +196,9 @@ export function kitchenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
       await transaction`
         insert into known_recipes (user_id, recipe_id, level) values (${userId}, ${recipeId}, ${level})
         on conflict (user_id, recipe_id) do update set level = ${level}`;
+      if (level === MAX_RECIPE_LEVEL) {
+        await addAward(transaction, userId, Award.RECIPE_LEVEL_10, 1);
+      }
       const gourmetPoints = before.gourmet_points + POINTS_PER_RECIPE_LEVEL[level - 1];
       const levelUpReward = rewardBetween(levelFor(before.gourmet_points), levelFor(gourmetPoints));
       const coins = Number(before.coins) + levelUpReward;
@@ -230,6 +234,7 @@ export function kitchenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
         insert into owned_ingredients (user_id, ingredient_id, quantity) values (${userId}, ${ingredientId}, 1)
         on conflict (user_id, ingredient_id) do update set quantity = owned_ingredients.quantity + 1
         returning quantity`;
+      await addAward(transaction, userId, Award.SPEND_COIN, price);
       return { coins: Number(paid[0].coins), quantity: owned[0].quantity };
     });
     return ok(c, result);

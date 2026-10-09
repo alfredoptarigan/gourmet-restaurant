@@ -10,6 +10,8 @@ signal coins_changed(coins: int)
 signal dish_paid
 ## An arcade machine was paid for, or trash was picked up.
 signal extra_paid
+## Something counted towards an award happened (Awards.Award).
+signal award_progressed(award: int)
 ## Something happened that the original marks with a sound; the value is the sound's name.
 signal sound_wanted(sound_name: String)
 
@@ -261,6 +263,7 @@ func use_item(item: RoomItem) -> void:
 ## WorldRestaurantPlay.fixBreakableItem.
 func fix_item(item: RoomItem) -> void:
 	item.usage_count = 0
+	award_progressed.emit(Awards.Award.TASK_FIX_TOILET if item.has_type(TOILET_TYPE) else Awards.Award.TASK_REPAIR_ITEM)
 
 
 ## WorldRestaurantPlay.onCustomerPayForFunctional and the payout of removeTrashObject.
@@ -294,6 +297,7 @@ func add_random_trash() -> void:
 func remove_trash(tile: Vector2i) -> void:
 	if room.trash.erase(tile):
 		pay_extra()
+		award_progressed.emit(Awards.Award.REMOVE_TRASH)
 
 
 func _drop_trash(delta: float) -> void:

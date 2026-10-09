@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { describeIssues } from './http.ts';
 
-export type CatalogItem = { cost: number; purchasable: boolean; unlockLevel: number; consumable: boolean };
+export type CatalogItem = { cost: number; purchasable: boolean; unlockLevel: number; consumable: boolean; outdoor: boolean };
 /**
  * Item id -> its price in coins, whether the shop sells it for coins to keep, from which
  * level, and whether it is instead used up on the spot (food that restores staff energy).
@@ -12,6 +12,7 @@ export type Catalog = ReadonlyMap<number, CatalogItem>;
 // The shape tools/extract_data.py writes: groups of items whose numbers are strings.
 const groupsSchema = z.array(
   z.object({
+    types: z.array(z.string()).optional(),
     items: z.array(
       z.object({
         id: z.string().regex(/^\d+$/),
@@ -20,6 +21,7 @@ const groupsSchema = z.array(
         invisible: z.boolean().optional(),
         unlockLevel: z.string().regex(/^\d+$/).optional(),
         workTime: z.string().regex(/^\d+$/).optional(),
+        types: z.array(z.string()).optional(),
       }),
     ),
   }),
@@ -42,6 +44,7 @@ export function parseCatalog(groups: unknown): Catalog {
         purchasable: forCoins && !consumable,
         unlockLevel: Number(item.unlockLevel ?? '0'),
         consumable,
+        outdoor: [...(group.types ?? []), ...(item.types ?? [])].includes('outdoor'),
       });
     }
   }

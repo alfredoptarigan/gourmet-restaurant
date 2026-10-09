@@ -547,6 +547,33 @@ test('a plant only grows while its soil is wet, and is harvested into an ingredi
   assert.equal(kitchen.body.data.ingredients[4000000], 1);
 });
 
+test('spending 2000 coins earns the bronze big-spender trophy', async () => {
+  const token = await register();
+  await giveCoins(2000);
+
+  for (let chair = 0; chair < 10; chair += 1) {
+    await call(app, 'POST', '/shop/buy', { token, body: { itemId: CHAIR } });
+  }
+  const awards = await call(app, 'GET', '/awards', { token });
+
+  assert.deepEqual(awards.body.data.progress, { 4: 2000, 5: 10 });
+  const owned = await inventory(token);
+  assert.equal(owned['3400008'], 1);
+  assert.equal(owned['3400017'], 1);
+});
+
+test('the client may report only the awards of its own simulation', async () => {
+  const token = await register();
+
+  const trash = await call(app, 'POST', '/awards/progress', { token, body: { award: 1, amount: 100 } });
+  const coins = await call(app, 'POST', '/awards/progress', { token, body: { award: 4, amount: 100 } });
+  const tooMany = await call(app, 'POST', '/awards/progress', { token, body: { award: 1, amount: 101 } });
+
+  assert.deepEqual(trash.body.data, { trophies: [3400023] });
+  assert.equal(coins.status, 400);
+  assert.equal(tooMany.status, 400);
+});
+
 test('an item with an unlock level cannot be bought before that level', async () => {
   const token = await register();
   await giveCoins(5000);
@@ -617,7 +644,7 @@ test('buying an item takes its price and adds it to the inventory', async () => 
   const profile = await call(app, 'GET', '/profile', { token });
 
   assert.equal(bought.status, 200);
-  assert.deepEqual(bought.body.data, { coins: 400, quantity: 1 });
+  assert.deepEqual(bought.body.data, { coins: 400, quantity: 1, trophies: [] });
   assert.equal(profile.body.data.coins, 400);
   assert.equal((await inventory(token))[FANCY_LAMP], 1);
 });

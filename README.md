@@ -78,7 +78,7 @@ npm test                             # needs the _test database
 
 Endpoints so far: `GET /health`, `GET /time`, `POST /auth/register`, `POST /auth/login`,
 `POST /auth/logout`, `GET /profile`, `PUT /profile`, `POST /profile/earnings`,
-`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`, `POST /shop/use`, `GET /kitchen`, `POST /kitchen/learn`, `POST /kitchen/buy-ingredient`, `GET /garden`, `POST /garden/plant`, `POST /garden/water`, `POST /garden/harvest`.
+`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`, `POST /shop/use`, `GET /kitchen`, `POST /kitchen/learn`, `POST /kitchen/buy-ingredient`, `GET /garden`, `POST /garden/plant`, `POST /garden/water`, `POST /garden/harvest`, `GET /awards`, `POST /awards/progress`.
 
 Coins and cash are server-owned. A profile save can only change the `data` blob, and the
 client reports how many dishes and extras (arcade plays, trash picked up) were paid for,
