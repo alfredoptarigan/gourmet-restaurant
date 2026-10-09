@@ -1,0 +1,10 @@
+.godot/
+*.translation
+export_presets.cfg
+.DS_Store
+raw/
+server/node_modules/
+server/.env
+assets/sprites/
+data/
+assets/avatar/
