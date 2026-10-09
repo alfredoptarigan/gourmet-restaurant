@@ -36,6 +36,7 @@ const MUSIC_KEY := "music"
 const MUSIC_GROUP := "Music"
 const MUSIC_PLAYER_TYPE := "musicPlayer"
 const ACHIEVEMENT_TYPE := "achievementItem"
+const MAIL_TYPE := "mailItem"
 ## The perk group of the food that restores staff energy.
 const STAFF_FOOD_GROUP := "Employee"
 ## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
@@ -356,6 +357,9 @@ func click_tile(tile: Vector2i) -> void:
 		if standing.has_type(ACHIEVEMENT_TYPE):
 			open_awards()
 			return
+		if standing.has_type(MAIL_TYPE):
+			open_quiz()
+			return
 	if item != null and item.is_broken():
 		play.fix_item(item)
 
@@ -405,6 +409,45 @@ func show_awards(progress: Dictionary) -> ChoicePanel:
 	for award: int in Awards.TABLE:
 		rows.append({"label": Awards.TABLE[award][0], "options": [Awards.describe(award, int(progress.get(str(award), 0)))], "selected": 0})
 	return hud.open_choices("Awards", rows)
+
+
+## The daily quiz arrives in the letter box, as the original's mail did.
+## ponytail: only the quiz is delivered. Gifts and messages from friends come with friends.
+func open_quiz() -> void:
+	if not Api.is_signed_in():
+		hud.show_message("Sign in to get mail.")
+		return
+	var result := await Api.fetch_quiz()
+	if not result["ok"]:
+		hud.show_message(result["error"])
+		return
+	if result["data"].get("answered") == true:
+		hud.show_message("No new mail. A new quiz comes tomorrow.")
+		return
+	ask_quiz(result["data"])
+
+
+func ask_quiz(quiz: Dictionary) -> ChoicePanel:
+	var reward: String = GameData.ingredient_items.get_item_by_id(int(quiz.get("rewardIngredientId", 0))).get("name", "an ingredient")
+	var panel: ChoicePanel = hud.open_choices("Daily quiz: answer right to win %s" % reward, [
+		{"label": quiz.get("question", ""), "options": quiz.get("choices", []), "selected": 0}])
+	panel.chosen.connect(func(selections: Array[int]) -> void: _on_quiz_answered(selections[0], quiz))
+	return panel
+
+
+func _on_quiz_answered(choice: int, quiz: Dictionary) -> void:
+	var result := await Api.answer_quiz(choice)
+	if not result["ok"]:
+		hud.show_message(result["error"])
+		return
+	if result["data"].get("correct") == true:
+		var won := int(result["data"].get("rewardIngredientId", 0))
+		ingredients[won] = ingredients.get(won, 0) + 1
+		hud.show_message("Right! You won %s." % GameData.ingredient_items.get_item_by_id(won).get("name", "an ingredient"))
+	else:
+		var choices: Array = quiz.get("choices", [])
+		var correct := int(result["data"].get("correctChoice", 0))
+		hud.show_message("Not quite: it was %s." % (choices[correct] if correct < choices.size() else "another answer"))
 
 
 func set_music(item_id: int) -> void:

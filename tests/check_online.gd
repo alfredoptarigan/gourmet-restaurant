@@ -63,6 +63,11 @@ func _check() -> void:
 	var awards := await Api.fetch_awards()
 	_expect(trash_award["ok"] and awards["data"].get("progress", {}).get("1") == 1.0, "picking up trash is counted on the server, got %s" % awards)
 
+	var quiz := await Api.fetch_quiz()
+	var quiz_answer := await Api.answer_quiz(0)
+	var quiz_again := await Api.answer_quiz(0)
+	_expect(quiz["ok"] and quiz["data"].get("choices") is Array and quiz_answer["ok"] and quiz_again["status"] == 409, "the daily quiz takes one answer a day, got %s then %s" % [quiz_answer, quiz_again])
+
 	var snack := await Api.use_item(6000000)
 	_expect(snack["status"] == 409 and snack["error"] == "Not enough coins", "80 coin food cannot be bought with 2 coins, got %s" % snack)
 

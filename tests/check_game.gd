@@ -124,6 +124,7 @@ func _check_room() -> void:
 	_check_stacking_and_painting(room)
 	_check_music(room)
 	_check_awards(room)
+	_check_quiz_form(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -667,6 +668,14 @@ func _check_awards(room: RestaurantRoom) -> void:
 	room.trash[Vector2i(4, 4)] = "SodaCan"
 	room.play.remove_trash(Vector2i(4, 4))
 	_expect(counted == [Awards.Award.REMOVE_TRASH], "picking up trash counts towards its award")
+
+
+func _check_quiz_form(room: RestaurantRoom) -> void:
+	var panel := room.ask_quiz({"question": "A tomato is a?", "choices": ["Nut", "Fruit"], "rewardIngredientId": 4000002.0})
+	_expect(panel.get_child(0).get_child(0).text == "Daily quiz: answer right to win Banana", "the quiz names its reward")
+	panel.queue_free()
+	room.click_tile(Vector2i(1, 7))
+	_expect(room.hud.message_label.text == "Sign in to get mail.", "the letter box holds the mail, which needs an account")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

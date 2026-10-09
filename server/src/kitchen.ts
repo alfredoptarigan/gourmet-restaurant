@@ -148,7 +148,10 @@ export function kitchenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
       const recipes = STARTER_RECIPES.map((recipe_id) => ({ user_id: userId, recipe_id, level: 1 }));
       const ingredients = [...STARTER_INGREDIENTS].map(([ingredient_id, quantity]) => ({ user_id: userId, ingredient_id, quantity }));
       await transaction`insert into known_recipes ${transaction(recipes)} on conflict do nothing`;
-      await transaction`insert into owned_ingredients ${transaction(ingredients)} on conflict do nothing`;
+      // Added to anything the player already got another way (a quiz reward, a harvest).
+      await transaction`
+        insert into owned_ingredients ${transaction(ingredients)}
+        on conflict (user_id, ingredient_id) do update set quantity = owned_ingredients.quantity + excluded.quantity`;
     });
     return ok(c, await kitchenOf(sql, userId));
   });

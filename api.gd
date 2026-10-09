@@ -124,6 +124,15 @@ func report_award(award: int, amount: int = 1) -> Dictionary:
 	return await _request(HTTPClient.METHOD_POST, "/awards/progress", {"award": award, "amount": amount})
 
 
+## Today's quiz question: {"question", "choices", "rewardIngredientId", "answered"}.
+func fetch_quiz() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/quiz")
+
+
+func answer_quiz(choice: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/quiz/answer", {"choice": choice})
+
+
 ## Pays for something that is used up at once, like food for the staff.
 func use_item(item_id: int) -> Dictionary:
 	return await _trade("/shop/use", item_id)

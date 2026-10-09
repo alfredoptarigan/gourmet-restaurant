@@ -4,6 +4,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
 import { parseCatalog, type Catalog } from '../src/catalog.ts';
 import { parseCookbook } from '../src/kitchen.ts';
+import { parseQuiz } from '../src/quiz.ts';
 import { connect, migrate } from '../src/db.ts';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/gourmet_street_test';
@@ -60,7 +61,22 @@ const cookbook = parseCookbook(
     },
   ],
 );
-const app = createApp({ sql, catalog, cookbook, authRateLimit: NO_RATE_LIMIT });
+const quiz = parseQuiz(
+  [
+    {
+      items: [
+        {
+          question: 'A tomato is a?',
+          reward: 'Salad',
+          children: [{ attributes: { text: 'Nut' } }, { attributes: { text: 'Fruit', correct: 'true' } }],
+        },
+        { question: 'No answer here?', reward: 'Salad', children: [{ attributes: { text: 'A' } }, { attributes: { text: 'B' } }] },
+      ],
+    },
+  ],
+  [{ items: [{ id: '4000034', name: 'Salad' }] }],
+);
+const app = createApp({ sql, catalog, cookbook, quiz, authRateLimit: NO_RATE_LIMIT });
 
 type CallOptions = { body?: unknown; rawBody?: string; token?: string };
 type ApiResponse = { status: number; body: { success: boolean; data: any; error: string | null } };
@@ -572,6 +588,37 @@ test('the client may report only the awards of its own simulation', async () => 
   assert.deepEqual(trash.body.data, { trophies: [3400023] });
   assert.equal(coins.status, 400);
   assert.equal(tooMany.status, 400);
+});
+
+test('the daily quiz pays an ingredient for a right answer, once a day', async () => {
+  const token = await register();
+
+  const asked = await call(app, 'GET', '/quiz', { token });
+  const answered = await call(app, 'POST', '/quiz/answer', { token, body: { choice: 1 } });
+  const again = await call(app, 'POST', '/quiz/answer', { token, body: { choice: 1 } });
+  const after = await call(app, 'GET', '/quiz', { token });
+  const kitchen = await call(app, 'GET', '/kitchen', { token });
+
+  // The question with no right answer is left out of the quiz.
+  assert.equal(quiz.length, 1);
+  assert.deepEqual(asked.body.data, { question: 'A tomato is a?', choices: ['Nut', 'Fruit'], rewardIngredientId: SALAD, answered: false });
+  assert.deepEqual(answered.body.data, { correct: true, correctChoice: 1, rewardIngredientId: SALAD });
+  assert.equal(again.status, 409);
+  assert.equal(after.body.data.answered, true);
+  // Two from the starting ingredients and one from the quiz.
+  assert.equal(kitchen.body.data.ingredients[SALAD], 3);
+});
+
+test('a wrong answer pays nothing and still uses up the day', async () => {
+  const token = await register();
+
+  const wrong = await call(app, 'POST', '/quiz/answer', { token, body: { choice: 0 } });
+  const retry = await call(app, 'POST', '/quiz/answer', { token, body: { choice: 1 } });
+  const nonsense = await call(app, 'POST', '/quiz/answer', { token, body: { choice: 9 } });
+
+  assert.deepEqual(wrong.body.data, { correct: false, correctChoice: 1, rewardIngredientId: null });
+  assert.equal(retry.status, 409);
+  assert.equal(nonsense.status, 400);
 });
 
 test('an item with an unlock level cannot be bought before that level', async () => {

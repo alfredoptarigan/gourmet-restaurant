@@ -7,6 +7,7 @@ import { gardenRoutes } from './garden.ts';
 import { ApiError, fail, ok } from './http.ts';
 import { kitchenRoutes, type Cookbook } from './kitchen.ts';
 import { profileRoutes } from './profile.ts';
+import { quizRoutes, type Question } from './quiz.ts';
 import { rateLimit } from './rate-limit.ts';
 import { shopRoutes } from './shop.ts';
 
@@ -18,10 +19,11 @@ export type AppOptions = {
   sql: Sql;
   catalog: Catalog;
   cookbook?: Cookbook;
+  quiz?: readonly Question[];
   authRateLimit?: { limit: number; windowMs: number };
 };
 
-export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
+export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, quiz = [], authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -47,6 +49,7 @@ export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, authRateLim
   app.route('/kitchen', kitchenRoutes(sql, cookbook));
   app.route('/garden', gardenRoutes(sql, cookbook));
   app.route('/awards', awardRoutes(sql));
+  app.route('/quiz', quizRoutes(sql, quiz));
 
   return app;
 }
