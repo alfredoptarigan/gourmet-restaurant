@@ -10,7 +10,7 @@ enum Emotion { NONE = -1, NO_SEAT, DIRTY, WAIT_TOO_LONG, DECOR, NO_TABLE, NO_CLE
 enum State {
 	WAITING_TO_SIT, WALKING_TO_CHAIR, DECIDING, WAITING, WAITING_FOR_FOOD, EATING, PAYING, LEAVING, LEFT,
 	NO_TABLE, NO_CLEAN_TABLE, PLAYING, WALKING_TO_TOILET, ON_TOILET, WALKING_TO_SINK, USING_SINK,
-	TOO_MUCH_TRASH,
+	TOO_MUCH_TRASH, WALKING_TO_ENTRANCE,
 }
 
 ## Customer.as timers, in seconds.
@@ -40,15 +40,31 @@ var left_happy := false
 var emotion: int = Emotion.NONE
 
 var _timer := 0.0
-var _door_tile: Vector2i
+var _entrance: Vector2i
 
 
-## ponytail: customers appear in the doorway. The original walks them in from the street,
-## which does not exist here yet.
-func enter(restaurant_play: RestaurantPlay, door_tile: Vector2i) -> void:
+## Customer.walkToEntrance: comes down the street from `start` and in through `entrance`,
+## a door's tile. With no `start` the customer is already standing in the entrance.
+func enter(restaurant_play: RestaurantPlay, entrance: Vector2i, start: Vector2i = entrance) -> void:
 	play = restaurant_play
-	_door_tile = door_tile
-	place_on(door_tile)
+	_entrance = entrance
+	place_on(start)
+	if start == entrance:
+		_arrive_at_entrance()
+		return
+	walk(path_from_street(entrance))
+	state = State.WALKING_TO_ENTRANCE
+
+
+## The street runs along the outside of the west wall, one tile out. A door in the north
+## wall is reached around the corner of the building.
+static func path_from_street(entrance: Vector2i) -> Array[Vector2i]:
+	if entrance.y == 0:
+		return [Vector2i(-1, -1), Vector2i(entrance.x, -1), entrance]
+	return [Vector2i(-1, entrance.y), entrance]
+
+
+func _arrive_at_entrance() -> void:
 	var trash_count := play.room.trash.size()
 	if trash_count > 0 and play.rng.randi_range(0, TRASH_ODDS - 1) < trash_count:
 		emotion = Emotion.DIRTY
@@ -56,12 +72,16 @@ func enter(restaurant_play: RestaurantPlay, door_tile: Vector2i) -> void:
 		state = State.TOO_MUCH_TRASH
 		return
 	_timer = WAITING_FOR_CHAIR_TIME
+	state = State.WAITING_TO_SIT
 	_walk_to_free_chair(not play.waiting_chair_queue.is_empty(), false)
 
 
 func tick(delta: float) -> void:
 	super(delta)
 	match state:
+		State.WALKING_TO_ENTRANCE:
+			if not is_walking():
+				_arrive_at_entrance()
 		State.WAITING_TO_SIT:
 			if _timer <= 0.0:
 				leave_unhappy(Emotion.NO_SEAT)
@@ -311,5 +331,5 @@ func _leave() -> void:
 		play.cancel_order(order)
 		order = null
 	_release_seat()
-	walk(play.room.grid.find_path(tile, _door_tile))
+	walk(play.room.grid.find_path(tile, _entrance))
 	state = State.LEAVING

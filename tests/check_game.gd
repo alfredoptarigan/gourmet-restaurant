@@ -107,6 +107,9 @@ func _check_room() -> void:
 		_expect(Sounds.has_sound(sound_name), "%s should have been extracted" % sound_name)
 	_expect(Sounds.has_sound("MusicRestaurant") and not Sounds.has_sound("NoSuchSound"), "sounds are found by class name")
 	Sounds.play("NoSuchSound")
+	_expect(Customer.path_from_street(Vector2i(0, 4)) == [Vector2i(-1, 4), Vector2i(0, 4)], "a west door is reached straight from the street")
+	_expect(Customer.path_from_street(Vector2i(4, 0)) == [Vector2i(-1, -1), Vector2i(4, -1), Vector2i(4, 0)], "a north door is reached around the corner")
+	_expect(room.play.entrances() == [Vector2i(0, 4)], "the starting restaurant has one way in")
 	_check_staffing(room)
 	_check_waiting_for_a_table(room)
 	_check_functional_items(room)
@@ -129,6 +132,8 @@ func _check_simulation(room: RestaurantRoom) -> void:
 	var most_overlays := 0
 	var saw_empty_plate := false
 	var saw_emotion := false
+	var saw_street := false
+	var demand_moved := false
 	var seconds := 0.0
 	while seconds < SIMULATED_SECONDS:
 		play.tick(SIMULATION_STEP)
@@ -136,6 +141,7 @@ func _check_simulation(room: RestaurantRoom) -> void:
 		# No frames pass in this loop, so draw the room's state by hand to check the view too.
 		room._process(0.0)
 		most_dishes = maxi(most_dishes, room._dish_sprites.size())
+		demand_moved = demand_moved or play.demand != RestaurantPlay.DEFAULT_DEMAND
 		most_overlays = maxi(most_overlays, room._chair_overlays.size())
 		for order: DishOrder in room._dish_sprites:
 			var last_frame: int = room._game_sprites.frame_count(order.recipe["className"]) - 1
@@ -145,13 +151,16 @@ func _check_simulation(room: RestaurantRoom) -> void:
 			if customer.emotion != Customer.Emotion.NONE and customer.has_node("Emotion"):
 				saw_emotion = true
 			states_seen[customer.state] = true
+			if customer.state == Customer.State.WALKING_TO_ENTRANCE and customer.tile.x < 0:
+				saw_street = true
 			if customer.state == Customer.State.DECIDING:
 				_expect(customer.tile == customer.chair.tile, "a seated customer should be on its chair's tile")
-	for state: int in [Customer.State.WALKING_TO_CHAIR, Customer.State.WAITING_FOR_FOOD, Customer.State.EATING, Customer.State.PAYING, Customer.State.LEAVING]:
+	for state: int in [Customer.State.WALKING_TO_ENTRANCE, Customer.State.WALKING_TO_CHAIR, Customer.State.WAITING_FOR_FOOD, Customer.State.EATING, Customer.State.PAYING, Customer.State.LEAVING]:
 		_expect(states_seen.has(state), "some customer should reach state %s" % Customer.State.keys()[state])
 	_expect(play.happy_customers > 0, "at least one customer should leave happy in %d simulated seconds" % SIMULATED_SECONDS)
 	_expect(play.coins > 0 and play.coins == int(play.gourmet_points) * 2, "each cleared plate should pay its recipe's 2 coins, got %d coins for %d dishes" % [play.coins, int(play.gourmet_points)])
 	_expect(play.customers.size() <= room.items_of_type("chairItem").size() + 2, "customers should not pile up, got %d" % play.customers.size())
+	_expect(saw_street, "customers should come in from the street outside the west wall")
 	_expect(saw_emotion, "a customer who gives up should leave with an emotion bubble")
 	_expect(most_dishes > 0, "a served dish should be drawn on its table")
 	_expect(saw_empty_plate, "a dish should end on its last frame, the empty plate")
@@ -161,7 +170,7 @@ func _check_simulation(room: RestaurantRoom) -> void:
 	_expect(room.grid.size == Vector2i(9, 8) and room.get_node("Floor").get_child_count() == 56, "level 4 has a 9 x 8 room with an 8 x 7 floor")
 	_expect(room.grid.is_walkable(Vector2i(8, 4)) and not room.grid.is_walkable(Vector2i(3, 3)), "the new floor is walkable and the furniture still blocks")
 	_expect(room.grid.is_walkable(Vector2i(0, 4)), "the door still opens its wall after resizing")
-	_expect(play.demand != RestaurantPlay.DEFAULT_DEMAND, "leaving customers should move the demand")
+	_expect(demand_moved, "leaving customers should move the demand")
 
 
 func _check_grid() -> void:

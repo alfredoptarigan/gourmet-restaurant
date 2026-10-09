@@ -32,7 +32,12 @@ const MENU_GROUPS: Array[String] = ["Starter", "Main", "Dessert", "Drink"]
 const DRINK_GROUP := "Drink"
 const DRINK_START_LEVEL := 15
 
+## WorldRestaurantPlay.PEDESTRIAN_START_TILE_POSITION: where customers come into view, up
+## or down the street outside the west wall.
+const STREET_START_TILES: Array[Vector2i] = [Vector2i(-1, -20), Vector2i(-1, 35)]
+
 const CHAIR_TYPE := "chairItem"
+const DOOR_TYPE := "doorItem"
 const KITCHEN_TYPE := "kitchen"
 const TOILET_TYPE := "toilet"
 const SINK_TYPE := "sink"
@@ -72,8 +77,6 @@ var empty_plates: Array[DishOrder] = []
 ## Customers on a chair with no table, waiting in turn for a chair that has one.
 var waiting_chair_queue: Array[Customer] = []
 
-var _door_tile: Vector2i
-var _has_door := false
 var _arrival_timer := 0.0
 
 
@@ -99,13 +102,10 @@ static func default_jobs(employee_limit: int, kitchen_count: int) -> Array[int]:
 ## Opens the restaurant with one employee for every entry of `jobs` (a Job each).
 ## ponytail: a chef with no kitchen appliance of their own is left out. The original shows
 ## them idle with a "need a stove" bubble.
-func start(restaurant_room: RestaurantRoom, door: RoomItem, jobs: Array[int]) -> void:
+func start(restaurant_room: RestaurantRoom, jobs: Array[int]) -> void:
 	room = restaurant_room
-	_has_door = door != null
-	if not _has_door:
+	if room.items_of_type(DOOR_TYPE).is_empty():
 		push_warning("RestaurantPlay: no door, so no customers can come in")
-	else:
-		_door_tile = door.tile
 	_arrival_timer = _next_arrival_delay()
 	var kitchens := room.items_of_type(KITCHEN_TYPE)
 	if kitchens.is_empty():
@@ -306,15 +306,28 @@ func _next_arrival_delay() -> float:
 	return 60.0 / per_minute + rng.randf_range(-ARRIVAL_JITTER, ARRIVAL_JITTER)
 
 
+## WorldRestaurantPlay.getValidDoors: the doors with a free tile inside them.
+func entrances() -> Array[Vector2i]:
+	var tiles: Array[Vector2i] = []
+	for door in room.items_of_type(DOOR_TYPE):
+		if room.grid.is_walkable(RoomGrid.facing_tile(door.tile, door.rotation)):
+			tiles.append(door.tile)
+	return tiles
+
+
+## ponytail: only customers walk the street. The original also sends passers-by along it.
 func _let_customers_in(delta: float) -> void:
 	_arrival_timer -= delta
-	if _arrival_timer > 0.0 or not _has_door:
+	if _arrival_timer > 0.0:
 		return
 	_arrival_timer = _next_arrival_delay()
+	var ways_in := entrances()
+	if ways_in.is_empty():
+		return
 	var customer := Customer.new()
 	_add_actor(customer, [])
 	customers.append(customer)
-	customer.enter(self, _door_tile)
+	customer.enter(self, _pick(ways_in), _pick(STREET_START_TILES))
 
 
 func _add_actor(actor: RoomActor, extra_items: Array) -> void:

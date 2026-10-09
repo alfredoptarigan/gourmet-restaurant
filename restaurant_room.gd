@@ -328,8 +328,7 @@ func start_play() -> void:
 	play = RestaurantPlay.new()
 	play.name = "Play"
 	add_child(play)
-	var doors := items_of_type(DOOR_TYPE)
-	play.start(self, doors[0] if not doors.is_empty() else null, staff_jobs())
+	play.start(self, staff_jobs())
 	play.sound_wanted.connect(Sounds.play)
 	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
