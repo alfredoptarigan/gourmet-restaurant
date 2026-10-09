@@ -8,10 +8,12 @@ extends Node
 signal coins_changed(coins: int)
 ## A customer's meal was paid for (its plate was cleared).
 signal dish_paid
-## An arcade machine was paid for.
+## An arcade machine was paid for, or trash was picked up.
 signal extra_paid
 ## Something happened that the original marks with a sound; the value is the sound's name.
 signal sound_wanted(sound_name: String)
+
+enum Job { CHEF, WAITER, CLEANER }
 
 ## WorldRestaurantPlay and GameWorld constants.
 const CUSTOMERS_PER_MINUTE_PER_DEMAND := 0.05
@@ -37,6 +39,12 @@ const INTERACTIVE_TYPE := "interactive"
 const TOILET_START_LEVEL := 8
 ## GameWorld.COINS_PAYOUT_FUNCTIONAL_ITEMS and GOURMET_POINTS_PER_FUNCTIONAL_ITEM_PAYOUT.
 const COINS_PER_EXTRA := 1
+## GameWorld.TRASH_APPEAR_RATE and its random delta, in seconds, and MAX_TRASH.
+const TRASH_APPEAR_RATE := 3600.0
+const TRASH_APPEAR_JITTER := 60.0
+const MAX_TRASH := 15
+## WorldRestaurantPlay.DEFAULT_TRASH_ITEMS.
+const TRASH_SPRITES: Array[String] = ["BananaPeel", "PizzaSlice", "SodaCan", "ChickenLeg", "AppleCore"]
 const GOURMET_POINTS_PER_EXTRA := 1.0
 const SKIN_COLOURS: Array[Color] = [Color("ffece9"), Color("ffdbc0"), Color("e8b98f"), Color("a8703f")]
 const HAIR_COLOURS: Array[Color] = [Color("5a3a22"), Color("2b1b12"), Color("c9a25a"), Color("8a3b1f")]
@@ -53,6 +61,7 @@ var happy_customers := 0
 var customers: Array[Customer] = []
 var chefs: Array[Chef] = []
 var waiters: Array[Waiter] = []
+var cleaners: Array[Cleaner] = []
 ## Orders waiting for a chef, cooked dishes waiting for a waiter, plates waiting to be cleared.
 var orders: Array[DishOrder] = []
 var completed_orders: Array[DishOrder] = []
@@ -69,11 +78,20 @@ static func actor_direction_for(item_rotation: int) -> int:
 	return ITEM_ROTATION_TO_ACTOR_DIRECTION[posmod(item_rotation, ITEM_ROTATION_TO_ACTOR_DIRECTION.size())]
 
 
-## Opens the restaurant with as many staff as the level allows.
-## ponytail: the original lets the player hire friends and give each a job. Until hiring
-## exists the roles are dealt out by rule: one chef per kitchen appliance, as long as one
-## employee is left to wait tables, and every other employee is a waiter.
-func start(restaurant_room: RestaurantRoom, door: RoomItem, employee_limit: int = 2) -> void:
+## The jobs dealt out when the player has not chosen: one chef per kitchen appliance, as long
+## as one employee is left to wait tables, and every other employee is a waiter.
+static func default_jobs(employee_limit: int, kitchen_count: int) -> Array[int]:
+	var chef_count := clampi(employee_limit - 1, 1, maxi(1, kitchen_count))
+	var jobs: Array[int] = []
+	for index in maxi(2, employee_limit):
+		jobs.append(Job.CHEF if index < chef_count else Job.WAITER)
+	return jobs
+
+
+## Opens the restaurant with one employee for every entry of `jobs` (a Job each).
+## ponytail: a chef with no kitchen appliance of their own is left out. The original shows
+## them idle with a "need a stove" bubble.
+func start(restaurant_room: RestaurantRoom, door: RoomItem, jobs: Array[int]) -> void:
 	room = restaurant_room
 	_has_door = door != null
 	if not _has_door:
@@ -84,21 +102,25 @@ func start(restaurant_room: RestaurantRoom, door: RoomItem, employee_limit: int 
 	var kitchens := room.items_of_type(KITCHEN_TYPE)
 	if kitchens.is_empty():
 		push_warning("RestaurantPlay: no kitchen, so nothing can be cooked")
-		return
-	var chef_count := clampi(employee_limit - 1, 1, kitchens.size())
 	var taken_tiles: Array[Vector2i] = []
-	for index in chef_count:
+	for index in mini(jobs.count(Job.CHEF), kitchens.size()):
 		var chef := Chef.new()
 		_add_actor(chef, [CHEF_HAT])
 		chef.start(self, kitchens[index])
 		chefs.append(chef)
 		taken_tiles.append(chef.tile)
-	for index in maxi(1, employee_limit - chef_count):
+	for index in (jobs.count(Job.WAITER) if not kitchens.is_empty() else 0):
 		var waiter := Waiter.new()
 		_add_actor(waiter, [])
 		waiter.start(self, kitchens[index % kitchens.size()], taken_tiles)
 		waiters.append(waiter)
 		taken_tiles.append(waiter.tile)
+	for index in jobs.count(Job.CLEANER):
+		var cleaner := Cleaner.new()
+		_add_actor(cleaner, [])
+		cleaner.start(self, taken_tiles)
+		cleaners.append(cleaner)
+		taken_tiles.append(cleaner.tile)
 
 
 func _process(delta: float) -> void:
@@ -110,6 +132,8 @@ func tick(delta: float) -> void:
 		chef.tick(delta)
 	for waiter in waiters:
 		waiter.tick(delta)
+	for cleaner in cleaners:
+		cleaner.tick(delta)
 	# A customer can remove itself from the list while ticking.
 	for customer in customers.duplicate():
 		customer.tick(delta)
@@ -117,6 +141,7 @@ func tick(delta: float) -> void:
 	_send_waiters_for_cooked_dishes()
 	_send_waiters_for_empty_plates()
 	_give_orders_to_chefs()
+	_drop_trash(delta)
 
 
 ## WorldRestaurantPlay.getEmptyChairs: chairs nobody sits on or walks to, optionally only
@@ -164,17 +189,43 @@ func fix_item(item: RoomItem) -> void:
 	item.usage_count = 0
 
 
-## WorldRestaurantPlay.onCustomerPayForFunctional.
-func pay_for_functional() -> void:
-	_pay_extra()
-
-
-func _pay_extra() -> void:
+## WorldRestaurantPlay.onCustomerPayForFunctional and the payout of removeTrashObject.
+func pay_extra() -> void:
 	coins += COINS_PER_EXTRA
 	gourmet_points += GOURMET_POINTS_PER_EXTRA
 	coins_changed.emit(coins)
 	extra_paid.emit()
 	sound_wanted.emit("SfxCash")
+
+
+## Floor tiles with nothing standing on them.
+func free_floor_tiles() -> Array[Vector2i]:
+	var tiles: Array[Vector2i] = []
+	for y in range(1, room.grid.size.y):
+		for x in range(1, room.grid.size.x):
+			if room.grid.is_walkable(Vector2i(x, y)):
+				tiles.append(Vector2i(x, y))
+	return tiles
+
+
+## WorldRestaurantPlay.addRandomTrash: one more piece on a free floor tile.
+func add_random_trash() -> void:
+	var clean_tiles := free_floor_tiles().filter(func(tile: Vector2i) -> bool: return not room.trash.has(tile))
+	if room.trash.size() < MAX_TRASH and not clean_tiles.is_empty():
+		room.trash[_pick(clean_tiles)] = _pick(TRASH_SPRITES)
+
+
+## WorldRestaurantPlay.removeTrashObject: picking trash up pays a little.
+func remove_trash(tile: Vector2i) -> void:
+	if room.trash.erase(tile):
+		pay_extra()
+
+
+func _drop_trash(delta: float) -> void:
+	room.trash_timer -= delta
+	if room.trash_timer <= 0.0:
+		room.trash_timer = TRASH_APPEAR_RATE + rng.randf_range(-TRASH_APPEAR_JITTER, TRASH_APPEAR_JITTER)
+		add_random_trash()
 
 
 ## WorldRestaurant.isTableFree.

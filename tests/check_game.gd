@@ -110,6 +110,7 @@ func _check_room() -> void:
 	_check_staffing(room)
 	_check_waiting_for_a_table(room)
 	_check_functional_items(room)
+	_check_trash_and_cleaner(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -317,6 +318,54 @@ func _check_functional_items(room: RestaurantRoom) -> void:
 		room.remove_item(item)
 	room.level = 1
 	room.start_play()
+
+
+func _check_trash_and_cleaner(room: RestaurantRoom) -> void:
+	const TOILET := 3500021
+	room.stop_play()
+	var toilet := room.place_item(TOILET, Vector2i(5, 7), 0)
+	room.jobs = [RestaurantPlay.Job.CHEF, RestaurantPlay.Job.WAITER, RestaurantPlay.Job.CLEANER]
+	room.start_play()
+	var play := room.play
+	play.set_process(false)
+	play.rng.seed = 11
+	_expect(play.chefs.size() == 1 and play.waiters.size() == 1 and play.cleaners.size() == 1, "the chosen jobs decide the staff")
+	if play.cleaners.is_empty():
+		return
+	var cleaner := play.cleaners[0]
+	_expect(cleaner.tile == Vector2i(6, 7), "a cleaner starts in front of the toilet, got %s" % cleaner.tile)
+
+	play.add_random_trash()
+	room._process(0.0)
+	_expect(room.trash.size() == 1 and room._trash_sprites.size() == 1 and room.grid.is_walkable(room.trash.keys()[0]), "trash lands on a free floor tile and is drawn")
+	var coins_before := play.coins
+	toilet.usage_count = int(toilet.config["breakCount"])
+	var seconds := 0.0
+	while seconds < 120.0 and (toilet.is_broken() or not room.trash.is_empty()):
+		cleaner.tick(SIMULATION_STEP)
+		seconds += SIMULATION_STEP
+	_expect(not toilet.is_broken() and toilet.cleaner == null, "the cleaner should repair the broken toilet")
+	_expect(room.trash.is_empty() and play.coins == coins_before + 1, "the cleaner should pick the trash up, which pays 1 coin")
+
+	room.trash[Vector2i(4, 4)] = "SodaCan"
+	room.click_tile(Vector2i(4, 4))
+	_expect(room.trash.is_empty() and play.coins == coins_before + 2, "clicking trash picks it up")
+	room.trash_timer = 0.05
+	play.tick(SIMULATION_STEP)
+	_expect(room.trash.size() == 1 and room.trash_timer > 3000.0, "trash appears when its timer runs out, about once an hour")
+
+	for index in Customer.TRASH_ODDS:
+		room.trash[Vector2i(100 + index, 100)] = "SodaCan"
+	var disgusted := _new_customer(room)
+	_expect(disgusted.state == Customer.State.TOO_MUCH_TRASH and disgusted.emotion == Customer.Emotion.DIRTY, "a filthy restaurant turns customers away at the door")
+	_expect(_tick_until(disgusted, Customer.State.LEAVING, Customer.TOO_MUCH_TRASH_TIME + 1.0), "and they leave")
+
+	room.stop_play()
+	room.trash.clear()
+	room.remove_item(toilet)
+	room.jobs = []
+	room.start_play()
+	_expect(room.play.cleaners.is_empty(), "the default jobs have no cleaner")
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

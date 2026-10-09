@@ -2,7 +2,7 @@ class_name Customer
 extends RoomActor
 ## A diner: comes in, takes a chair, orders, eats, pays, leaves. Port of Customer.as.
 ##
-## Not ported yet: trash, drinks, and the outdoor area.
+## Not ported yet: drinks and the outdoor area.
 
 ## Customer.EMOTION_*: the frame of the Emotions sprite shown over an unhappy customer.
 enum Emotion { NONE = -1, NO_SEAT, DIRTY, WAIT_TOO_LONG, DECOR, NO_TABLE, NO_CLEAN_TABLE, NO_TOILET, WAIT_TOO_LONG_FOR_DRINK }
@@ -10,6 +10,7 @@ enum Emotion { NONE = -1, NO_SEAT, DIRTY, WAIT_TOO_LONG, DECOR, NO_TABLE, NO_CLE
 enum State {
 	WAITING_TO_SIT, WALKING_TO_CHAIR, DECIDING, WAITING, WAITING_FOR_FOOD, EATING, PAYING, LEAVING, LEFT,
 	NO_TABLE, NO_CLEAN_TABLE, PLAYING, WALKING_TO_TOILET, ON_TOILET, WALKING_TO_SINK, USING_SINK,
+	TOO_MUCH_TRASH,
 }
 
 ## Customer.as timers, in seconds.
@@ -23,6 +24,9 @@ const PAYING_TIME := 2.0
 const PLAYING_TIME := 30.0
 const TOILET_TIME := 10.0
 const SINK_TIME := 4.0
+const TOO_MUCH_TRASH_TIME := 2.0
+## Each piece of trash is one chance in this many that an arriving customer turns around.
+const TRASH_ODDS := 20
 ## One customer in this many visits the toilet after paying (Engine.rnd(0, 3) == 0).
 const TOILET_VISIT_ODDS := 3
 
@@ -45,6 +49,12 @@ func enter(restaurant_play: RestaurantPlay, door_tile: Vector2i) -> void:
 	play = restaurant_play
 	_door_tile = door_tile
 	place_on(door_tile)
+	var trash_count := play.room.trash.size()
+	if trash_count > 0 and play.rng.randi_range(0, TRASH_ODDS - 1) < trash_count:
+		emotion = Emotion.DIRTY
+		_timer = TOO_MUCH_TRASH_TIME
+		state = State.TOO_MUCH_TRASH
+		return
 	_timer = WAITING_FOR_CHAIR_TIME
 	_walk_to_free_chair(not play.waiting_chair_queue.is_empty(), false)
 
@@ -59,6 +69,9 @@ func tick(delta: float) -> void:
 				emotion = Emotion.NONE
 			else:
 				emotion = Emotion.NO_SEAT
+		State.TOO_MUCH_TRASH:
+			if _timer <= 0.0:
+				leave_unhappy(Emotion.DIRTY)
 		State.NO_TABLE:
 			if _timer <= 0.0:
 				leave_unhappy(Emotion.NO_TABLE)
@@ -78,7 +91,7 @@ func tick(delta: float) -> void:
 		State.PLAYING:
 			if _timer <= 0.0:
 				play.use_item(used_item)
-				play.pay_for_functional()
+				play.pay_extra()
 				_leave()
 		State.DECIDING:
 			if _timer <= 0.0:

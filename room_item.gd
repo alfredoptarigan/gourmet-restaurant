@@ -27,6 +27,8 @@ var table_top_order: DishOrder
 var ready_order: DishOrder
 ## Toilet or arcade machine: uses since it was last cleaned or repaired.
 var usage_count := 0
+## Broken item: the cleaner on the way to repair it.
+var cleaner: Cleaner
 
 
 func has_type(type: String) -> bool:

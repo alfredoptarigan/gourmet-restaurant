@@ -71,6 +71,13 @@ var editor: RestaurantEditor
 var level := 1
 var floor_id := 0
 var wallpaper_id := 0
+## The job of each employee (RestaurantPlay.Job). Empty means the default split.
+var jobs: Array[int] = []
+## Trash on the floor: tile -> sprite name. It stays while the restaurant is redecorated.
+## ponytail: trash lasts for the session only. The original saves the count with the
+## profile and adds what piled up while the player was away.
+var trash: Dictionary = {}
+var trash_timer := RestaurantPlay.TRASH_APPEAR_RATE
 
 var _sprites := SpriteLibrary.load_group("indoor")
 var _game_sprites := SpriteLibrary.load_group("game")
@@ -79,6 +86,8 @@ var _dish_sprites: Dictionary = {}
 var _chair_overlays: Dictionary = {}
 ## Broken item -> the sprites that mark it as broken.
 var _broken_marks: Dictionary = {}
+## Tile -> the sprite of the trash lying there.
+var _trash_sprites: Dictionary = {}
 ## Gourmet points from earlier openings this session, when playing offline.
 var _offline_points := 0
 
@@ -124,6 +133,7 @@ func _process(_delta: float) -> void:
 	_sync_chair_overlays()
 	_sync_emotions()
 	_sync_broken_marks()
+	_sync_trash()
 	hud.set_demand(play.demand)
 
 
@@ -135,10 +145,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		click_tile(RoomGrid.screen_to_tile(get_local_mouse_position()))
 
 
-## A click while the restaurant is open repairs the broken toilet or arcade machine there.
-## ponytail: the repair is instant and the click goes by floor tile, not by the item's art.
-## The original queues a task for the player's own avatar, which is not in the room yet.
+## A click while the restaurant is open picks up the trash on that tile, or repairs the
+## broken toilet or arcade machine there.
+## ponytail: both are instant and the click goes by floor tile, not by the art. The
+## original queues a task for the player's own avatar, which is not in the room yet.
 func click_tile(tile: Vector2i) -> void:
+	if trash.has(tile):
+		play.remove_trash(tile)
+		return
 	var item := item_at(tile)
 	if item != null and item.is_broken():
 		play.fix_item(item)
@@ -255,7 +269,9 @@ func start_play() -> void:
 	play.name = "Play"
 	add_child(play)
 	var doors := items_of_type(DOOR_TYPE)
-	play.start(self, doors[0] if not doors.is_empty() else null, int(Levels.row(level)["employees"]))
+	var staff := jobs if not jobs.is_empty() else RestaurantPlay.default_jobs(
+			int(Levels.row(level)["employees"]), items_of_type(RestaurantPlay.KITCHEN_TYPE).size())
+	play.start(self, doors[0] if not doors.is_empty() else null, staff)
 	play.sound_wanted.connect(Sounds.play)
 	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
@@ -286,6 +302,7 @@ func stop_play() -> void:
 		item.occupant = null
 		item.table_top_order = null
 		item.ready_order = null
+		item.cleaner = null
 
 
 ## Signed in, coins and progress are the server's; offline, they are this session's count.
@@ -483,3 +500,21 @@ func _sync_broken_marks() -> void:
 			item_layer.add_child(sign_sprite)
 			marks.append(sign_sprite)
 		_broken_marks[item] = marks
+
+
+## Draws the trash lying on the floor.
+func _sync_trash() -> void:
+	for tile: Vector2i in _trash_sprites.keys():
+		if not trash.has(tile):
+			_trash_sprites[tile].queue_free()
+			_trash_sprites.erase(tile)
+	for tile: Vector2i in trash:
+		if _trash_sprites.has(tile):
+			continue
+		var sprite := _sprites.make_sprite(trash[tile])
+		if sprite == null:
+			continue
+		sprite.position = RoomGrid.tile_center(tile)
+		sprite.z_index = RoomGrid.tile_draw_order(tile) * RoomActor.DRAW_ORDER_STEP
+		item_layer.add_child(sprite)
+		_trash_sprites[tile] = sprite
