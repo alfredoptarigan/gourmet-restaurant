@@ -87,8 +87,20 @@ func add_item(tile: Vector2i, footprint: Vector2i = Vector2i.ONE, is_door: bool 
 
 
 func add_wall(tile: Vector2i) -> void:
+	if _walls.has(tile):
+		return
 	_walls[tile] = true
 	add_item(tile)
+
+
+## Grows the room. Everything already placed stays where it is.
+func resize(new_size: Vector2i) -> void:
+	size = new_size
+	_astar.region = Rect2i(Vector2i.ZERO, size)
+	_astar.update()
+	for x in size.x:
+		for y in size.y:
+			_refresh(Vector2i(x, y))
 
 
 ## WorldRestaurant.isWalkable.

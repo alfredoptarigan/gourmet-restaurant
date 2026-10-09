@@ -87,11 +87,13 @@ func _check_room() -> void:
 	_expect(not path.is_empty() and path.all(func(step: Vector2i) -> bool: return room.grid.is_walkable(step)),
 			"the path to (4, 4) should only cross free tiles, got %s" % [path])
 	_expect(room.get_node_or_null("EarningsSync") == null, "offline, the room should not sync earnings")
-	_expect(room.coins_label.text == "Coins: 0", "offline, the label starts at this session's 0 coins")
+	_expect(room.hud.coins_label.text == "Coins: 0", "offline, the label starts at this session's 0 coins")
+	_expect(room.hud.level_label.text == "Level 1", "a new restaurant is level 1")
 	var sync := EarningsSync.new()
 	sync._on_dish_paid()
 	sync._on_dish_paid()
 	_expect(sync.shown_coins() == 4, "two unconfirmed dishes should show as 4 coins, got %d" % sync.shown_coins())
+	_expect(sync.shown_points() == 2, "two unconfirmed dishes should show as 2 gourmet points")
 	sync.free()
 	_check_avatar(room.play.waiters[0].avatar)
 	_check_simulation(room)
@@ -106,10 +108,21 @@ func _check_simulation(room: RestaurantRoom) -> void:
 	_expect(play.waiters.size() == 1 and play.waiters[0].tile == Vector2i(5, 2), "the waiter waits beside the stove")
 	_expect(play.chefs[0].avatar.direction == 5, "the chef faces the stove")
 	var states_seen := {}
+	var most_dishes := 0
+	var most_overlays := 0
+	var saw_empty_plate := false
 	var seconds := 0.0
 	while seconds < SIMULATED_SECONDS:
 		play.tick(SIMULATION_STEP)
 		seconds += SIMULATION_STEP
+		# No frames pass in this loop, so draw the room's state by hand to check the view too.
+		room._process(0.0)
+		most_dishes = maxi(most_dishes, room._dish_sprites.size())
+		most_overlays = maxi(most_overlays, room._chair_overlays.size())
+		for order: DishOrder in room._dish_sprites:
+			var last_frame: int = room._game_sprites.frame_count(order.recipe["className"]) - 1
+			if room._dish_sprites[order].frame == last_frame:
+				saw_empty_plate = true
 		for customer in play.customers:
 			states_seen[customer.state] = true
 			if customer.state == Customer.State.DECIDING:
@@ -119,10 +132,21 @@ func _check_simulation(room: RestaurantRoom) -> void:
 	_expect(play.happy_customers > 0, "at least one customer should leave happy in %d simulated seconds" % SIMULATED_SECONDS)
 	_expect(play.coins > 0 and play.coins == int(play.gourmet_points) * 2, "each cleared plate should pay its recipe's 2 coins, got %d coins for %d dishes" % [play.coins, int(play.gourmet_points)])
 	_expect(play.customers.size() <= room.items_of_type("chairItem").size() + 2, "customers should not pile up, got %d" % play.customers.size())
+	_expect(most_dishes > 0, "a served dish should be drawn on its table")
+	_expect(saw_empty_plate, "a dish should end on its last frame, the empty plate")
+	_expect(most_overlays > 0, "a seated customer should get the chair's backrest drawn over them")
+	_expect(room.hud.level_label.text == "Level 1" and room.hud.level_bar.value > 0.0, "serving dishes should fill the level bar")
+	room.resize(Levels.room_size(4))
+	_expect(room.grid.size == Vector2i(9, 8) and room.get_node("Floor").get_child_count() == 56, "level 4 has a 9 x 8 room with an 8 x 7 floor")
+	_expect(room.grid.is_walkable(Vector2i(8, 4)) and not room.grid.is_walkable(Vector2i(3, 3)), "the new floor is walkable and the furniture still blocks")
+	_expect(room.grid.is_walkable(Vector2i(0, 4)), "the door still opens its wall after resizing")
 	_expect(play.demand != RestaurantPlay.DEFAULT_DEMAND, "leaving customers should move the demand")
 
 
 func _check_grid() -> void:
+	_expect(Levels.count() == 66 and Levels.level_for(0) == 1 and Levels.level_for(50) == 2 and Levels.level_for(99) == 3, "levels follow the gourmet point thresholds")
+	_expect(Levels.room_size(1) == Vector2i(8, 8) and Levels.room_size(4) == Vector2i(9, 8), "levels set the room size")
+	_expect(is_equal_approx(Levels.progress(25), 0.5) and Levels.progress(99999999) == 1.0, "progress runs from one threshold to the next")
 	_expect(RoomGrid.tile_to_screen(Vector2i(3, 1)) == Vector2(80, 80), "tile (3, 1) should be at (80, 80)")
 	_expect(RoomGrid.tile_center(Vector2i(0, 0)) == Vector2(0, 20), "a tile's centre is half a tile down")
 	_expect(RoomGrid.tile_draw_order(Vector2i(2, 1)) == 22, "tile (2, 1) should draw at index 22")

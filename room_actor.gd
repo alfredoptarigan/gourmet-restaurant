@@ -10,8 +10,9 @@ extends Node2D
 ## AvatarActor.DEFAULT_MOVE_SPEED_X / Y are 0.06 and 0.03 pixels per millisecond.
 const MOVE_SPEED := Vector2(60.0, 30.0)
 const DIRECTION_COUNT := 8
-## Actors draw just in front of an item on the same tile.
-const DRAW_ORDER_STEP := 2
+## Draw order within one tile: the item, then an actor on it, then anything laid over the
+## actor (a chair's backrest, a dish).
+const DRAW_ORDER_STEP := 4
 
 var tile: Vector2i
 var avatar := Avatar.new()

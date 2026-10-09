@@ -13,6 +13,8 @@ var tile: Vector2i
 var rotation: int
 var footprint: Vector2i
 var sprite: Sprite2D
+## How far above the floor the item's top is: where a dish on a table sits.
+var top_height := 0.0
 
 ## Chair: who sits here, or is walking over to.
 var occupant: Customer

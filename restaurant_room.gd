@@ -7,6 +7,7 @@ extends Node2D
 ## the inner edge of their tile, and the floor is everything from tile (1, 1) on
 ## (WorldRestaurant.addDefaultWalls, fillBaseArea).
 
+const LOGIN_SCENE := "res://login.tscn"
 const WALL_ITEM := "White Walls"
 const WALL_CORNER_ITEM := "Wall Corner"
 ## Item rotation is the timeline frame: 0 is a wall along x = 0, 1 a wall along y = 0.
@@ -14,6 +15,12 @@ const WEST_WALL_ROTATION := 0
 const NORTH_WALL_ROTATION := 1
 const DOOR_TYPE := "doorItem"
 const TABLE_TYPE := "tableItem"
+const CHAIR_TYPE := "chairItem"
+const CHAIR_OVERLAY_SUFFIX := "Overlay"
+## Where the middle of the floor sits on the 760 x 600 stage.
+const FLOOR_CENTER_ON_SCREEN := Vector2(380, 310)
+## Draw order inside one tile, on top of the item's own (see RoomActor.DRAW_ORDER_STEP).
+const OVER_ACTOR := 2
 
 ## WorldRestaurant.DEFAULT_RESTAURANT_ITEMS, minus the two wallpaper entries: the wallpaper
 ## is a property of the layout here.
@@ -40,20 +47,25 @@ const DEFAULT_DOOR_TILE := Vector2i(0, 4)
 @onready var floor_layer: Node2D = $Floor
 @onready var wall_layer: Node2D = $Walls
 @onready var item_layer: Node2D = $Items
-
-@onready var coins_label: Label = $Hud/Coins
+@onready var hud: CanvasLayer = $Hud
 
 var grid: RoomGrid
 var items: Array[RoomItem] = []
 var play: RestaurantPlay
+var level := 1
 
 var _sprites := SpriteLibrary.load_group("indoor")
+var _game_sprites := SpriteLibrary.load_group("game")
+var _floor_sprite: String
+var _wallpaper_item: String
+var _dish_sprites: Dictionary = {}
+var _chair_overlays: Dictionary = {}
 
 
-## A new player's restaurant. GameWorld.LEVEL_THRESHOLDS[0] gives the 8 x 8 size.
-static func default_layout() -> Dictionary:
+## A new player's restaurant, at the size its level allows (GameWorld.LEVEL_THRESHOLDS).
+static func default_layout(at_level: int = 1) -> Dictionary:
 	return {
-		"size": Vector2i(8, 8),
+		"size": Levels.room_size(at_level),
 		"floor": "FloorTile",
 		"wallpaper": "Neutral Blue",
 		"items": DEFAULT_ITEMS,
@@ -62,19 +74,34 @@ static func default_layout() -> Dictionary:
 
 
 func _ready() -> void:
-	build(default_layout())
+	var points := int(Api.profile.get("gourmetPoints", 0)) if Api.is_signed_in() else 0
+	level = Levels.level_for(points)
+	build(default_layout(level))
 
 
 func build(layout: Dictionary) -> void:
 	grid = RoomGrid.new(layout["size"])
-	_build_floor(layout["floor"])
-	_build_walls(layout["wallpaper"])
+	_floor_sprite = layout["floor"]
+	_wallpaper_item = layout["wallpaper"]
+	_build_shell()
 	_build_items(layout["items"])
 	play = RestaurantPlay.new()
 	play.name = "Play"
 	add_child(play)
 	play.start(self, layout["door"])
-	_track_coins()
+	_connect_hud()
+
+
+func _process(_delta: float) -> void:
+	_sync_dishes()
+	_sync_chair_overlays()
+	hud.set_demand(play.demand)
+
+
+## Dragging with a mouse button held scrolls a restaurant that is bigger than the screen.
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and event.button_mask != 0:
+		position += event.relative
 
 
 func items_of_type(type: String) -> Array[RoomItem]:
@@ -99,21 +126,52 @@ func table_for_chair(chair: RoomItem) -> RoomItem:
 	return faced if faced != null and faced.has_type(TABLE_TYPE) else null
 
 
-## Signed in, the coins shown are the server's; offline, they are just this session's count.
-func _track_coins() -> void:
+## WorldRestaurant.setRoomSize: a higher level gives a bigger floor. Furniture stays put.
+func resize(new_size: Vector2i) -> void:
+	if new_size == grid.size:
+		return
+	grid.resize(new_size)
+	for layer: Node2D in [floor_layer, wall_layer]:
+		for child in layer.get_children():
+			child.free()
+	_build_shell()
+
+
+## Signed in, coins and progress are the server's; offline, they are this session's count.
+func _connect_hud() -> void:
+	hud.set_signed_in(Api.is_signed_in())
+	hud.sign_out_pressed.connect(_sign_out)
 	if not Api.is_signed_in():
-		play.coins_changed.connect(_show_coins)
-		_show_coins(play.coins)
+		play.coins_changed.connect(hud.set_coins)
+		play.dish_paid.connect(func() -> void: _on_progress(int(play.gourmet_points)))
+		hud.set_coins(play.coins)
+		_on_progress(0)
 		return
 	var sync := EarningsSync.new()
 	sync.name = "EarningsSync"
 	add_child(sync)
-	sync.coins_changed.connect(_show_coins)
+	sync.coins_changed.connect(hud.set_coins)
+	sync.progress_changed.connect(_on_progress)
+	sync.leveled_up.connect(func(new_level: int, reward: int) -> void:
+		hud.show_message("Level %d! You earned %d coins." % [new_level, reward]))
 	sync.start(play)
 
 
-func _show_coins(coins: int) -> void:
-	coins_label.text = "Coins: %d" % coins
+func _on_progress(gourmet_points: int) -> void:
+	hud.set_gourmet_points(gourmet_points)
+	var reached := Levels.level_for(gourmet_points)
+	if reached <= level:
+		return
+	level = reached
+	if not Api.is_signed_in():
+		hud.show_message("Level %d!" % level)
+	resize(Levels.room_size(level))
+
+
+func _sign_out() -> void:
+	if Api.is_signed_in():
+		await Api.logout()
+	get_tree().change_scene_to_file(LOGIN_SCENE)
 
 
 func _place(layer: Node2D, sprite_name: String, tile: Vector2i, frame: int) -> Sprite2D:
@@ -132,20 +190,20 @@ func _sprite_name_of(item_name: String) -> String:
 	return sprite_name
 
 
-func _build_floor(floor_sprite: String) -> void:
-	for y in range(1, grid.size.y):
-		for x in range(1, grid.size.x):
-			_place(floor_layer, floor_sprite, Vector2i(x, y), 0)
-
-
-## WorldRestaurant.addDefaultWalls and setWallPaper.
-func _build_walls(wallpaper_item: String) -> void:
+## Floor, walls, and wallpaper for the current size, with the floor centred on the stage.
+func _build_shell() -> void:
+	var size := grid.size
+	position = FLOOR_CENTER_ON_SCREEN - RoomGrid.tile_to_screen(size) / 2.0
+	for y in range(1, size.y):
+		for x in range(1, size.x):
+			_place(floor_layer, _floor_sprite, Vector2i(x, y), 0)
+	# WorldRestaurant.addDefaultWalls and setWallPaper.
 	var wall := _sprite_name_of(WALL_ITEM)
-	var wallpaper := _sprite_name_of(wallpaper_item)
+	var wallpaper := _sprite_name_of(_wallpaper_item)
 	var segments: Array[Dictionary] = []
-	for x in range(1, grid.size.x):
+	for x in range(1, size.x):
 		segments.append({"tile": Vector2i(x, 0), "rotation": NORTH_WALL_ROTATION})
-	for y in range(1, grid.size.y):
+	for y in range(1, size.y):
 		segments.append({"tile": Vector2i(0, y), "rotation": WEST_WALL_ROTATION})
 	for segment in segments:
 		_place(wall_layer, wall, segment["tile"], segment["rotation"])
@@ -183,7 +241,52 @@ func _build_items(entries: Array) -> void:
 		# the default stove is asked for 3 turns, shows frame 0, and still ends up 1 x 2.
 		item.rotation = sprite.frame
 		item.footprint = _footprint(item.config, sprite_name, turns)
+		item.top_height = _sprites.item_height(sprite_name, RoomGrid.footprint_from_extent(_sprites.extent(sprite_name)).y)
 		item.sprite = sprite
 		sprite.z_index = RoomGrid.tile_draw_order(item.tile) * RoomActor.DRAW_ORDER_STEP
 		grid.add_item(item.tile, item.footprint, item.has_type(DOOR_TYPE))
 		items.append(item)
+
+
+## Keeps one dish sprite on every table that has a served order, showing how much is eaten.
+## The simulation only tracks the order; this draws it (DishOrder was an AnimatedObject).
+func _sync_dishes() -> void:
+	var on_tables := {}
+	for table in items_of_type(TABLE_TYPE):
+		var order := table.table_top_order
+		if order == null or not order.served:
+			continue
+		on_tables[order] = true
+		var dish: Sprite2D = _dish_sprites.get(order)
+		if dish == null:
+			var sprite_name: String = order.recipe.get("className", "")
+			if not _game_sprites.has_sprite(sprite_name):
+				continue
+			dish = _game_sprites.make_sprite(sprite_name)
+			dish.position = RoomGrid.tile_center(table.tile) - Vector2(0, table.top_height)
+			dish.z_index = table.sprite.z_index + OVER_ACTOR
+			item_layer.add_child(dish)
+			_dish_sprites[order] = dish
+		# The dish's timeline runs from a full plate to an empty one.
+		dish.frame = roundi(order.eaten * (_game_sprites.frame_count(order.recipe.get("className", "")) - 1))
+	for order: DishOrder in _dish_sprites.keys():
+		if not on_tables.has(order):
+			_dish_sprites[order].queue_free()
+			_dish_sprites.erase(order)
+
+
+## Draws a chair's backrest over whoever sits on it (Customer.sitOnChair's chairOverlay).
+func _sync_chair_overlays() -> void:
+	for chair in items_of_type(CHAIR_TYPE):
+		var seated := chair.occupant != null and chair.occupant.is_seated()
+		var overlay: Sprite2D = _chair_overlays.get(chair)
+		if seated and overlay == null:
+			var sprite_name: String = chair.config.get("className", "") + CHAIR_OVERLAY_SUFFIX
+			if not _sprites.has_sprite(sprite_name):
+				continue
+			overlay = _place(item_layer, sprite_name, chair.tile, chair.rotation)
+			overlay.z_index = chair.sprite.z_index + OVER_ACTOR
+			_chair_overlays[chair] = overlay
+		elif not seated and overlay != null:
+			overlay.queue_free()
+			_chair_overlays.erase(chair)

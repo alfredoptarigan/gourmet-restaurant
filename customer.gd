@@ -51,6 +51,7 @@ func tick(delta: float) -> void:
 			if _timer <= 0.0:
 				leave_unhappy()
 		State.EATING:
+			order.eaten = clampf(1.0 - _timer / EATING_TIME, 0.0, 1.0)
 			if _timer <= 0.0:
 				_finish_eating()
 		State.PAYING:
@@ -69,7 +70,12 @@ func wait_for_food() -> void:
 	state = State.WAITING_FOR_FOOD
 
 
+func is_seated() -> bool:
+	return state in [State.DECIDING, State.WAITING, State.WAITING_FOR_FOOD, State.EATING, State.PAYING]
+
+
 func eat_order() -> void:
+	order.served = true
 	avatar.play(Avatar.Animations.EAT)
 	_timer = EATING_TIME
 	state = State.EATING
@@ -119,6 +125,7 @@ func _order() -> void:
 
 func _finish_eating() -> void:
 	avatar.play(Avatar.Animations.SIT)
+	order.eaten = 1.0
 	# The plate stays on the table, and is paid for, when a waiter clears it.
 	play.empty_plates.append(order)
 	order = null

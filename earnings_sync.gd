@@ -4,12 +4,16 @@ extends Node
 ## The coins shown are the server's figure plus what has been earned but not yet confirmed.
 
 signal coins_changed(coins: int)
+signal progress_changed(gourmet_points: int)
+## The server confirmed a new level and paid its reward.
+signal leveled_up(level: int, coin_reward: int)
 
 const FLUSH_INTERVAL := 5.0
 ## Only for the display while a report is on its way; the server sets the real value.
 const COINS_PER_DISH := 2
 
 var _confirmed_coins := 0
+var _confirmed_points := 0
 var _unsent_dishes := 0
 var _sending_dishes := 0
 var _since_flush := 0.0
@@ -17,12 +21,23 @@ var _since_flush := 0.0
 
 func start(play: RestaurantPlay) -> void:
 	_confirmed_coins = int(Api.profile.get("coins", 0))
+	_confirmed_points = int(Api.profile.get("gourmetPoints", 0))
 	play.dish_paid.connect(_on_dish_paid)
-	coins_changed.emit(shown_coins())
+	_announce()
 
 
 func shown_coins() -> int:
 	return _confirmed_coins + (_unsent_dishes + _sending_dishes) * COINS_PER_DISH
+
+
+## Each dish is one gourmet point, counted as soon as it is paid for.
+func shown_points() -> int:
+	return _confirmed_points + _unsent_dishes + _sending_dishes
+
+
+func _announce() -> void:
+	coins_changed.emit(shown_coins())
+	progress_changed.emit(shown_points())
 
 
 func _process(delta: float) -> void:
@@ -34,7 +49,7 @@ func _process(delta: float) -> void:
 
 func _on_dish_paid() -> void:
 	_unsent_dishes += 1
-	coins_changed.emit(shown_coins())
+	_announce()
 
 
 ## ponytail: dishes paid in the last few seconds before the game closes are not reported.
@@ -49,9 +64,13 @@ func _flush() -> void:
 		var credited := clampi(int(result["data"].get("credited", 0)), 0, _sending_dishes)
 		_unsent_dishes += _sending_dishes - credited
 		_confirmed_coins = int(result["data"].get("coins", _confirmed_coins))
+		_confirmed_points = int(result["data"].get("gourmetPoints", _confirmed_points))
+		var reward := int(result["data"].get("levelUpReward", 0))
+		if reward > 0:
+			leveled_up.emit(int(result["data"].get("level", 1)), reward)
 	else:
 		# Not delivered: keep the dishes and try again on the next flush.
 		push_warning("EarningsSync: could not report earnings (%s)" % result["error"])
 		_unsent_dishes += _sending_dishes
 	_sending_dishes = 0
-	coins_changed.emit(shown_coins())
+	_announce()
