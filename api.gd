@@ -21,6 +21,8 @@ var token := ""
 ## The profile as last fetched: username, coins, cash, version, data.
 var profile: Dictionary = {}
 
+var _saving := false
+
 
 func _ready() -> void:
 	var override := OS.get_environment(BASE_URL_VARIABLE)
@@ -87,6 +89,10 @@ func save_layout(layout: Dictionary) -> Dictionary:
 
 ## Stores one entry of the profile's free-form data and keeps the others.
 func save_data(key: String, value: Variant) -> Dictionary:
+	# One save at a time: each carries the version the one before it produced.
+	while _saving:
+		await get_tree().process_frame
+	_saving = true
 	var data: Dictionary = profile.get("data", {}).duplicate()
 	data[key] = value
 	# The server keeps the stored layout when a save leaves it out, and checks it against
@@ -95,6 +101,7 @@ func save_data(key: String, value: Variant) -> Dictionary:
 	if key != LAYOUT_KEY:
 		sent.erase(LAYOUT_KEY)
 	var result := await _request(HTTPClient.METHOD_PUT, "/profile", {"version": int(profile.get("version", 0)), "data": sent})
+	_saving = false
 	if result["ok"]:
 		profile["version"] = result["data"].get("version", profile.get("version", 0))
 		profile["data"] = data

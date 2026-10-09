@@ -69,8 +69,15 @@ func _check() -> void:
 		var again := await Api.fetch_profile()
 		_expect(again["ok"] and Api.profile["data"]["layout"]["items"][4]["x"] == 4.0, "the saved layout should come back on the next fetch")
 
-	var menu_saved := await Api.save_data("menu", {"Starter": 5000008})
-	var layout_saved := await Api.save_layout(Api.profile["data"]["layout"])
+	# Started together, not one after the other: each save must still get a fresh version.
+	var both: Array = []
+	var collect := func(save: Callable) -> void: both.append(await save.call())
+	collect.call(Api.save_data.bind("menu", {"Starter": 5000008}))
+	collect.call(Api.save_layout.bind(Api.profile["data"]["layout"]))
+	while both.size() < 2:
+		await get_tree().process_frame
+	var menu_saved: Dictionary = both[0]
+	var layout_saved: Dictionary = both[1]
 	var reloaded := await Api.fetch_profile()
 	_expect(menu_saved["ok"] and layout_saved["ok"] and reloaded["ok"], "saving the menu and then the layout should both succeed, got %s and %s" % [menu_saved, layout_saved])
 	_expect(Api.profile["data"].get("menu") == {"Starter": 5000008.0} and Api.profile["data"].get("layout") is Dictionary,

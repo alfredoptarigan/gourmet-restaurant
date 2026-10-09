@@ -218,7 +218,8 @@ func walk_to_arcade() -> bool:
 ##
 ## getPathToRandomValidEmptyChair prefers a chair at a free table, then one at any table,
 ## then any chair at all. While others queue for a table, a newcomer skips the tables
-## (`skip_tables`); the first in that queue takes nothing but a chair with a table (`tables_only`).
+## (`skip_tables`); the first in that queue takes no chair but one with a table (`tables_only`).
+## Either way the arcade is the fallback, so a queueing customer may give up the wait to play.
 func _walk_to_free_chair(skip_tables: bool, tables_only: bool) -> bool:
 	var choices: Array = []
 	if not skip_tables:

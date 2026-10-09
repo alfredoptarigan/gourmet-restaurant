@@ -331,6 +331,10 @@ func place_item(item_id: int, tile: Vector2i, turns: int) -> RoomItem:
 	item.sprite = sprite
 	sprite.z_index = RoomGrid.tile_draw_order(tile) * RoomActor.DRAW_ORDER_STEP
 	grid.add_item(tile, item.footprint, item.has_type(DOOR_TYPE))
+	# Trash under furniture could not be seen or swept, yet would still put customers off.
+	for x in item.footprint.x:
+		for y in item.footprint.y:
+			trash.erase(tile + Vector2i(x, y))
 	items.append(item)
 	return item
 

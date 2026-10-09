@@ -373,8 +373,12 @@ func _check_trash_and_cleaner(room: RestaurantRoom) -> void:
 	_expect(disgusted.state == Customer.State.TOO_MUCH_TRASH and disgusted.emotion == Customer.Emotion.DIRTY, "a filthy restaurant turns customers away at the door")
 	_expect(_tick_until(disgusted, Customer.State.LEAVING, Customer.TOO_MUCH_TRASH_TIME + 1.0), "and they leave")
 
-	room.stop_play()
 	room.trash.clear()
+	room.trash[Vector2i(4, 4)] = "SodaCan"
+	var on_trash := room.place_item(3040001, Vector2i(4, 4), 0)
+	_expect(room.trash.is_empty(), "furniture put down on trash clears it away")
+	room.remove_item(on_trash)
+	room.stop_play()
 	room.remove_item(toilet)
 	room.jobs = []
 	room.level = 1
