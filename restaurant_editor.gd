@@ -15,7 +15,7 @@ const INVENTORY := "Inventory"
 ## The shop's shelves, in the order shown (group names from restaurant.json).
 const SHOP_GROUPS: Array[String] = [
 	"Table", "Chair", "Decoration", "Wall Decoration", "Door", "Kitchen Appliance",
-	"Functional", "Floor Tile", "Wallpaper", "Outdoor Only", RestaurantRoom.OUTSIDE_GROUP,
+	"Functional", "Floor Tile", "Wallpaper", "Outdoor Only", RestaurantRoom.OUTSIDE_GROUP, RestaurantRoom.MUSIC_GROUP,
 ]
 const FLOOR_GROUP := "Floor Tile"
 const WALLPAPER_GROUP := "Wallpaper"
@@ -262,6 +262,11 @@ func _use(item_id: int) -> void:
 			_say("Click floor tiles to paint them.")
 		WALLPAPER_GROUP:
 			room.set_wallpaper(item_id)
+			_refresh_list()
+		RestaurantRoom.MUSIC_GROUP:
+			room.owned_music[item_id] = true
+			room.set_music(item_id)
+			_say("Your restaurant will play %s." % GameData.interior_items.get_item_by_id(item_id).get("name", ""))
 			_refresh_list()
 		RestaurantRoom.OUTSIDE_GROUP:
 			room.set_outside_size(RestaurantRoom.best_outside_size(owned))

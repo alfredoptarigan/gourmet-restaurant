@@ -32,6 +32,10 @@ const MENU_KEY := "menu"
 const JOBS_KEY := "jobs"
 const AVATAR_KEY := "avatar"
 const ENERGY_KEY := "energy"
+const MUSIC_KEY := "music"
+## The music the shop sells, and the type of the furniture that plays it.
+const MUSIC_GROUP := "Music"
+const MUSIC_PLAYER_TYPE := "musicPlayer"
 ## The perk group of the food that restores staff energy.
 const STAFF_FOOD_GROUP := "Employee"
 ## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
@@ -97,6 +101,10 @@ var level := 1
 var floor_id := 0
 var wallpaper_id := 0
 var outside_size := Vector2i.ZERO
+## The music the player chose (an item of the Music group), or 0 for the default.
+var music_id := 0
+## Music the player has bought: item id -> true.
+var owned_music: Dictionary = {}
 ## Floor tiles painted over the base floor: tile -> floor item id.
 var floor_tiles: Dictionary = {}
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
@@ -152,6 +160,11 @@ func _ready() -> void:
 			for item_id: String in inventory["data"]["items"]:
 				owned[int(item_id)] = int(inventory["data"]["items"][item_id])
 			outside_size = best_outside_size(owned)
+			for item_id: int in owned:
+				if GameData.interior_items.get_group_name_by_id(item_id) == MUSIC_GROUP:
+					owned_music[item_id] = true
+		var saved_music: Variant = saved.get(MUSIC_KEY)
+		music_id = int(saved_music) if saved_music is float else 0
 	build(_saved_layout())
 	_connect_hud()
 	start_play()
@@ -336,8 +349,55 @@ func click_tile(tile: Vector2i) -> void:
 		play.remove_trash(tile)
 		return
 	var item := item_at(tile)
+	for standing in items_at(tile):
+		if standing.has_type(MUSIC_PLAYER_TYPE):
+			choose_music()
+			return
 	if item != null and item.is_broken():
 		play.fix_item(item)
+
+
+## WorldRestaurantPlay.getPlayingMusicForUser: the chosen music if it is free or bought,
+## otherwise the default (the second Music item; the first is silence).
+func playing_music() -> Dictionary:
+	var chosen := GameData.interior_items.get_item_by_id(music_id)
+	if GameData.interior_items.get_group_name_by_id(music_id) == MUSIC_GROUP and (int(chosen.get("cost", 0)) == 0 or owned_music.has(music_id)):
+		return chosen
+	return GameData.interior_items.get_items(MUSIC_GROUP)[1]
+
+
+func music_choices() -> Array:
+	return GameData.interior_items.get_items(MUSIC_GROUP).filter(func(music: Dictionary) -> bool:
+		return int(music.get("cost", 0)) == 0 or owned_music.has(int(music["id"])))
+
+
+## Clicking a jukebox or stereo picks the music. More music is sold in the Decorate shop.
+func choose_music() -> ChoicePanel:
+	var choices := music_choices()
+	var panel: ChoicePanel = hud.open_choices("Music", [{
+		"label": "Play",
+		"options": choices.map(func(music: Dictionary) -> String: return music.get("name", "")),
+		"selected": maxi(0, choices.find(playing_music())),
+	}])
+	panel.chosen.connect(func(selections: Array[int]) -> void:
+		if selections[0] >= 0 and selections[0] < choices.size():
+			set_music(int(choices[selections[0]]["id"])))
+	return panel
+
+
+func set_music(item_id: int) -> void:
+	music_id = item_id
+	if play != null:
+		_play_music()
+	_save(MUSIC_KEY, music_id)
+
+
+func _play_music() -> void:
+	var track: String = playing_music().get("className", "")
+	if track.is_empty():
+		Sounds.stop_music()
+	else:
+		Sounds.play_music(track)
 
 
 func items_of_type(type: String) -> Array[RoomItem]:
@@ -504,7 +564,7 @@ func start_play() -> void:
 		energy.append(RestaurantPlay.MAX_WORK_TIME)
 	play.start(self, staff)
 	play.sound_wanted.connect(Sounds.play)
-	Sounds.play_music(RESTAURANT_MUSIC)
+	_play_music()
 	if _sync != null:
 		play.dish_paid.connect(_sync.add_dish)
 		play.extra_paid.connect(_sync.add_extra)

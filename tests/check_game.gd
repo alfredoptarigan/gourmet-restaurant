@@ -122,6 +122,7 @@ func _check_room() -> void:
 	_check_recipes(room)
 	_check_garden_form(room)
 	_check_stacking_and_painting(room)
+	_check_music(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -630,6 +631,27 @@ func _check_stacking_and_painting(room: RestaurantRoom) -> void:
 	room.paint_floor(Vector2i(4, 4), wood)
 	_expect(not room.to_layout().has("tiles"), "painting the base floor back leaves no override")
 	_expect(not room.can_paint(Vector2i(0, 3)) and room.can_paint(Vector2i(1, 1)), "walls are not painted")
+
+
+func _check_music(room: RestaurantRoom) -> void:
+	const JUKEBOX := 3020010
+	const OVERTURE := 3600002
+	_expect(room.playing_music().get("className") == "MusicRestaurant", "the default music plays")
+	_expect(room.music_choices().size() == 2, "before buying any, only silence and the default can be chosen")
+	room.music_id = OVERTURE
+	_expect(room.playing_music().get("className") == "MusicRestaurant", "music that is not owned does not play")
+	room.owned_music[OVERTURE] = true
+	_expect(room.playing_music().get("className") == "MusicClassical" and room.music_choices().size() == 3, "bought music plays and can be chosen")
+	var jukebox := room.place_item(JUKEBOX, Vector2i(4, 4), 0)
+	room.click_tile(Vector2i(4, 4))
+	var panel: ChoicePanel = room.hud._choices
+	_expect(panel != null and panel.get_child(0).get_child(0).text == "Music", "clicking the jukebox opens the music form")
+	panel.select(0, 0)
+	panel.finish()
+	_expect(room.music_id == 3600000 and room.playing_music().get("className") == "", "choosing No Music silences the restaurant")
+	room.remove_item(jukebox)
+	room.music_id = 0
+	room.owned_music = {}
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:
