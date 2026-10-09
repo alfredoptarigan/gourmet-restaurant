@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
 import { parseCatalog, type Catalog } from '../src/catalog.ts';
+import { parseCookbook } from '../src/kitchen.ts';
 import { connect, migrate } from '../src/db.ts';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/gourmet_street_test';
@@ -33,7 +34,32 @@ const catalog: Catalog = parseCatalog([
   },
   { name: 'Award', items: [{ id: String(AWARD), cost: '0', cash: '0', invisible: true }] },
 ]);
-const app = createApp({ sql, catalog, authRateLimit: NO_RATE_LIMIT });
+const GARDEN_SALAD = 5000008;
+const SALAD = 4000034;
+const cookbook = parseCookbook(
+  [
+    {
+      name: 'Starter',
+      items: [
+        { id: String(GARDEN_SALAD), ingredients: 'Salad, Tomato, Egg' },
+        { id: '5000099', ingredients: 'Salad, Salad, Basil' },
+        { id: '5000098', ingredients: 'Salad', expireDate: '2010-12-31' },
+      ],
+    },
+  ],
+  [
+    {
+      name: 'Ingredient',
+      items: [
+        { id: '4000034', name: 'Salad', cash: '4' },
+        { id: '4000040', name: 'Tomato', cash: '8' },
+        { id: '4000013', name: 'Egg', cash: '6' },
+        { id: '4000000', name: 'Basil', cash: '8', noCoinShop: true },
+      ],
+    },
+  ],
+);
+const app = createApp({ sql, catalog, cookbook, authRateLimit: NO_RATE_LIMIT });
 
 type CallOptions = { body?: unknown; rawBody?: string; token?: string };
 type ApiResponse = { status: number; body: { success: boolean; data: any; error: string | null } };
@@ -409,6 +435,64 @@ test('food for the staff is paid for and used up, never owned', async () => {
   assert.equal(bought.status, 404);
   assert.equal(chair.status, 404);
   assert.equal((await inventory(token))[String(RUBY_JUICE)], undefined);
+});
+
+test('a new player knows three recipes and holds the ingredients for them', async () => {
+  const token = await register();
+
+  const kitchen = await call(app, 'GET', '/kitchen', { token });
+  const again = await call(app, 'GET', '/kitchen', { token });
+
+  assert.equal(kitchen.status, 200);
+  assert.deepEqual(kitchen.body.data.recipes, { 5000008: 1, 5100003: 1, 5200000: 1 });
+  assert.equal(kitchen.body.data.ingredients[SALAD], 2);
+  assert.deepEqual(again.body.data, kitchen.body.data);
+});
+
+test('a set of ingredients takes a recipe a level higher and earns gourmet points', async () => {
+  const token = await register();
+  await call(app, 'GET', '/kitchen', { token });
+
+  const learned = await call(app, 'POST', '/kitchen/learn', { token, body: { recipeId: GARDEN_SALAD } });
+  const second = await call(app, 'POST', '/kitchen/learn', { token, body: { recipeId: GARDEN_SALAD } });
+  const third = await call(app, 'POST', '/kitchen/learn', { token, body: { recipeId: GARDEN_SALAD } });
+
+  assert.equal(learned.status, 200);
+  // Level 2 is worth 50 gourmet points, which also reaches player level 2 and its reward.
+  assert.equal(learned.body.data.level, 2);
+  assert.equal(learned.body.data.gourmetPoints, 50);
+  assert.equal(learned.body.data.levelUpReward, 3500);
+  assert.equal(learned.body.data.ingredients[SALAD], 1);
+  assert.equal(second.body.data.level, 3);
+  assert.equal(second.body.data.ingredients[SALAD], undefined);
+  assert.equal(third.status, 409);
+  assert.equal(third.body.error, 'You do not have the ingredients for this recipe');
+});
+
+test('a recipe needing an ingredient twice takes two of it, and nothing is spent on a refusal', async () => {
+  const token = await register();
+  await call(app, 'GET', '/kitchen', { token });
+
+  const refused = await call(app, 'POST', '/kitchen/learn', { token, body: { recipeId: 5000099 } });
+  const kitchen = await call(app, 'GET', '/kitchen', { token });
+  const expired = await call(app, 'POST', '/kitchen/learn', { token, body: { recipeId: 5000098 } });
+
+  assert.equal(refused.status, 409);
+  assert.equal(kitchen.body.data.ingredients[SALAD], 2);
+  assert.equal(expired.body.error, 'This recipe can no longer be learned');
+});
+
+test('ingredients sell for coins by their cash price, except the ones kept for cash', async () => {
+  const token = await register();
+  await giveCoins(1500);
+
+  const bought = await call(app, 'POST', '/kitchen/buy-ingredient', { token, body: { ingredientId: SALAD } });
+  const tooDear = await call(app, 'POST', '/kitchen/buy-ingredient', { token, body: { ingredientId: 4000040 } });
+  const cashOnly = await call(app, 'POST', '/kitchen/buy-ingredient', { token, body: { ingredientId: 4000000 } });
+
+  assert.deepEqual(bought.body.data, { coins: 500, quantity: 1 });
+  assert.equal(tooDear.status, 409);
+  assert.equal(cashOnly.status, 404);
 });
 
 test('an item with an unlock level cannot be bought before that level', async () => {

@@ -3,15 +3,23 @@ import { authRoutes } from './auth.ts';
 import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
 import { ApiError, fail, ok } from './http.ts';
+import { kitchenRoutes, type Cookbook } from './kitchen.ts';
 import { profileRoutes } from './profile.ts';
 import { rateLimit } from './rate-limit.ts';
 import { shopRoutes } from './shop.ts';
 
 const DEFAULT_AUTH_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
-export type AppOptions = { sql: Sql; catalog: Catalog; authRateLimit?: { limit: number; windowMs: number } };
+const EMPTY_COOKBOOK: Cookbook = { recipes: new Map(), ingredients: new Map() };
 
-export function createApp({ sql, catalog, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
+export type AppOptions = {
+  sql: Sql;
+  catalog: Catalog;
+  cookbook?: Cookbook;
+  authRateLimit?: { limit: number; windowMs: number };
+};
+
+export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -34,6 +42,7 @@ export function createApp({ sql, catalog, authRateLimit = DEFAULT_AUTH_RATE_LIMI
   app.route('/auth', authRoutes(sql));
   app.route('/profile', profileRoutes(sql));
   app.route('/shop', shopRoutes(sql, catalog));
+  app.route('/kitchen', kitchenRoutes(sql, cookbook));
 
   return app;
 }

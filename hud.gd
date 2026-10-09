@@ -11,6 +11,7 @@ signal menu_pressed
 signal staff_pressed
 signal avatar_pressed
 signal feed_pressed
+signal recipes_pressed
 
 const MESSAGE_SECONDS := 4.0
 
@@ -25,6 +26,7 @@ const MESSAGE_SECONDS := 4.0
 @onready var staff_button: Button = %Staff
 @onready var avatar_button: Button = %Avatar
 @onready var feed_button: Button = %Feed
+@onready var recipes_button: Button = %Recipes
 
 var _message_time_left := 0.0
 var _choices: ChoicePanel
@@ -37,6 +39,7 @@ func _ready() -> void:
 	staff_button.pressed.connect(func() -> void: staff_pressed.emit())
 	avatar_button.pressed.connect(func() -> void: avatar_pressed.emit())
 	feed_button.pressed.connect(func() -> void: feed_pressed.emit())
+	recipes_button.pressed.connect(func() -> void: recipes_pressed.emit())
 	message_label.text = ""
 
 

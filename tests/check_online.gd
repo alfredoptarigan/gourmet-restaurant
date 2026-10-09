@@ -90,6 +90,12 @@ func _check() -> void:
 	var signed_in := await Api.login(username, password)
 	_expect(signed_in["ok"] and Api.profile.get("coins") == 2.0, "signing in again should show the saved coins, got %s" % Api.profile)
 
+	# Last of the coin checks: level 2 of a recipe also reaches player level 2 and its reward.
+	var kitchen := await Api.fetch_kitchen()
+	_expect(kitchen["ok"] and kitchen["data"].get("recipes", {}).get("5000008") == 1.0, "a new player knows Garden Salad, got %s" % kitchen)
+	var learned := await Api.learn_recipe(5000008)
+	_expect(learned["ok"] and learned["data"].get("level") == 2.0, "the starting ingredients take Garden Salad to level 2, got %s" % learned)
+
 	var wrong := await Api.login(username, "the wrong password")
 	_expect(wrong["status"] == 401, "a wrong password should be refused, got %s" % wrong)
 

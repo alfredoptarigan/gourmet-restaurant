@@ -32,6 +32,11 @@ const AVATAR_KEY := "avatar"
 const ENERGY_KEY := "energy"
 ## The perk group of the food that restores staff energy.
 const STAFF_FOOD_GROUP := "Employee"
+## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
+const RECIPE_LEVEL_NAMES: Array[String] = ["Simple", "Standard", "Classic", "Tasty", "Delicious", "Luxurious", "Gourmet", "Sensational", "Ultimate", "Royal"]
+const INGREDIENT_GROUP := "Ingredient"
+## Cash price -> coin price on the server's coin market (server/src/kitchen.ts).
+const INGREDIENT_COIN_PRICES := {4: 1000, 6: 1500, 8: 2000}
 ## The group of the outdoor area sizes the shop sells, and the type of outdoor-only items.
 const OUTSIDE_GROUP := "OutsideAreaSize"
 const OUTDOOR_TYPE := "outdoor"
@@ -96,6 +101,10 @@ var energy: Array[float] = []
 ## How the player looks: {"items": {group: item name}, "skin": index, "hair": index} with the
 ## indexes into RestaurantPlay.SKIN_COLOURS and HAIR_COLOURS. Empty until the player chooses.
 var look: Dictionary = {}
+## Signed in: the recipes the player knows (recipe id -> level) and the ingredients they hold
+## (ingredient id -> quantity), as the server last said. Offline every recipe is known.
+var known_recipes: Dictionary = {}
+var ingredients: Dictionary = {}
 ## The dish the player serves for each course: course name -> recipe id; see recipe_for().
 var menu: Dictionary = {}
 ## Trash on the floor: tile -> sprite name. It stays while the restaurant is redecorated.
@@ -126,6 +135,9 @@ func _ready() -> void:
 		menu = valid_menu(saved.get(MENU_KEY))
 		look = valid_look(saved.get(AVATAR_KEY))
 		energy = rested_energy(saved.get(ENERGY_KEY), jobs, Time.get_unix_time_from_system())
+		var kitchen := await Api.fetch_kitchen()
+		if kitchen["ok"]:
+			_take_kitchen(kitchen["data"])
 		var inventory := await Api.fetch_inventory()
 		if inventory["ok"] and inventory["data"].get("items") is Dictionary:
 			var owned := {}
@@ -241,16 +253,20 @@ func staff_jobs() -> Array[int]:
 
 
 ## The recipes a course can be served with.
+## Signed in, only the recipes the player has learned; offline, every visible one.
 func menu_choices(course: String) -> Array:
-	return GameData.recipe_items.get_items(course).filter(
-		func(recipe: Dictionary) -> bool: return recipe.get("invisible") != true)
+	return GameData.recipe_items.get_items(course).filter(func(recipe: Dictionary) -> bool:
+		if not known_recipes.is_empty():
+			return known_recipes.has(int(recipe["id"]))
+		return recipe.get("invisible") != true)
 
 
 ## The dish served for a course: the player's choice, or the first recipe of the course.
-## ponytail: every recipe can be chosen and all are level 1. The original has the player
-## learn and level recipes with ingredients (WorldRecipeMenu).
+## ponytail: one dish per course. The original lets a higher level put two or three on the
+## menu (numDishes), and a recipe's level adds 0.2 gourmet points a dish, which the server
+## does not pay yet.
 func recipe_for(course: String) -> Dictionary:
-	if menu.has(course):
+	if menu.has(course) and menu_choices(course).any(func(recipe: Dictionary) -> bool: return int(recipe["id"]) == menu[course]):
 		return GameData.recipe_items.get_item_by_id(menu[course])
 	var recipes := menu_choices(course)
 	return recipes[0] if not recipes.is_empty() else {}
@@ -471,6 +487,7 @@ func _connect_hud() -> void:
 	hud.staff_pressed.connect(choose_staff)
 	hud.avatar_pressed.connect(choose_avatar)
 	hud.feed_pressed.connect(choose_food)
+	hud.recipes_pressed.connect(choose_recipe)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -599,6 +616,99 @@ func _on_avatar_chosen(selections: Array[int]) -> void:
 	look = valid_look({"items": items, "skin": selections[groups.size()], "hair": selections[groups.size() + 1]})
 	_reopen()
 	_save(AVATAR_KEY, look)
+
+
+func _take_kitchen(data: Dictionary) -> void:
+	if data.get("recipes") is Dictionary:
+		known_recipes = {}
+		for recipe_id: String in data["recipes"]:
+			known_recipes[int(recipe_id)] = int(data["recipes"][recipe_id])
+	if data.get("ingredients") is Dictionary:
+		ingredients = {}
+		for ingredient_id: String in data["ingredients"]:
+			ingredients[int(ingredient_id)] = int(data["ingredients"][ingredient_id])
+
+
+## Recipe's constructor: ingredient id -> how many one level of the recipe takes.
+static func ingredients_of(recipe: Dictionary) -> Dictionary:
+	var needed := {}
+	for ingredient_name: String in str(recipe.get("ingredients", "")).split(","):
+		var ingredient := GameData.ingredient_items.get_item_from_group(ingredient_name.strip_edges(), INGREDIENT_GROUP)
+		if not ingredient.is_empty():
+			needed[int(ingredient["id"])] = needed.get(int(ingredient["id"]), 0) + 1
+	return needed
+
+
+## The recipes that can be learned or improved: every course, known ones first.
+func learnable_recipes() -> Array:
+	var recipes: Array = []
+	for course in RestaurantPlay.MENU_GROUPS:
+		for recipe: Dictionary in GameData.recipe_items.get_items(course):
+			var level := int(known_recipes.get(int(recipe["id"]), 0))
+			if level < RECIPE_LEVEL_NAMES.size() and (level > 0 or (recipe.get("invisible") != true and not recipe.has("expireDate"))):
+				recipes.append(recipe)
+	recipes.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return known_recipes.has(int(a["id"])) and not known_recipes.has(int(b["id"])))
+	return recipes
+
+
+func market_ingredients() -> Array:
+	return GameData.ingredient_items.get_items(INGREDIENT_GROUP).filter(func(ingredient: Dictionary) -> bool:
+		return ingredient.get("noCoinShop") != true and INGREDIENT_COIN_PRICES.has(int(ingredient.get("cash", 0))))
+
+
+## How a recipe reads in the form: its level and what the next one takes, with what is held.
+func describe_recipe(recipe: Dictionary) -> String:
+	var level := int(known_recipes.get(int(recipe["id"]), 0))
+	var parts: Array = []
+	var needed := ingredients_of(recipe)
+	for ingredient_id: int in needed:
+		var name: String = GameData.ingredient_items.get_item_by_id(ingredient_id).get("name", "?")
+		parts.append("%s %d/%d" % [name, ingredients.get(ingredient_id, 0), needed[ingredient_id]])
+	var standing := "%s (level %d)" % [RECIPE_LEVEL_NAMES[level - 1], level] if level > 0 else "not learned"
+	return "%s, %s; needs %s" % [recipe.get("name", ""), standing, ", ".join(parts)]
+
+
+## WorldRecipeMenu and the ingredient market in one form: pick a recipe to learn or improve,
+## or an ingredient to buy, or both.
+## ponytail: drop-downs with no pictures; the original is a cookbook with a page per course.
+func choose_recipe() -> ChoicePanel:
+	var recipes: Array = learnable_recipes()
+	var market: Array = market_ingredients()
+	var panel: ChoicePanel = hud.open_choices("Recipes", [
+		{"label": "Learn or improve", "options": ["(nothing)"] + recipes.map(describe_recipe), "selected": 0},
+		{"label": "Buy an ingredient", "options": ["(nothing)"] + market.map(func(ingredient: Dictionary) -> String:
+			return "%s, %d coins (have %d)" % [ingredient.get("name", ""), INGREDIENT_COIN_PRICES[int(ingredient["cash"])], ingredients.get(int(ingredient["id"]), 0)]),
+			"selected": 0},
+	])
+	panel.chosen.connect(func(selections: Array[int]) -> void: _on_recipe_chosen(selections, recipes, market))
+	return panel
+
+
+func _on_recipe_chosen(selections: Array[int], recipes: Array, market: Array) -> void:
+	if selections[0] <= 0 and selections[1] <= 0:
+		return
+	if not Api.is_signed_in():
+		hud.show_message("Sign in to learn recipes and buy ingredients.")
+		return
+	if selections[1] > 0 and selections[1] <= market.size():
+		var bought := await Api.buy_ingredient(int(market[selections[1] - 1]["id"]))
+		if not bought["ok"]:
+			hud.show_message(bought["error"])
+			return
+		ingredients[int(market[selections[1] - 1]["id"])] = int(bought["data"].get("quantity", 1))
+		set_confirmed_coins(int(bought["data"].get("coins", 0)))
+	if selections[0] > 0 and selections[0] <= recipes.size():
+		var recipe: Dictionary = recipes[selections[0] - 1]
+		var learned := await Api.learn_recipe(int(recipe["id"]))
+		if not learned["ok"]:
+			hud.show_message(learned["error"])
+			return
+		_take_kitchen(learned["data"])
+		set_confirmed_coins(int(learned["data"].get("coins", 0)))
+		if _sync != null:
+			_sync.set_confirmed_points(int(learned["data"].get("gourmetPoints", 0)))
+		hud.show_message("%s is now %s." % [recipe.get("name", ""), RECIPE_LEVEL_NAMES[int(learned["data"].get("level", 1)) - 1]])
 
 
 ## The food that restores staff energy, as the Employee perks describe it.

@@ -119,6 +119,7 @@ func _check_room() -> void:
 	_check_outdoor_area(room)
 	_check_avatar_choice(room)
 	_check_staff_energy(room)
+	_check_recipes(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -570,6 +571,25 @@ func _check_staff_energy(room: RestaurantRoom) -> void:
 	room.energy = []
 	room.start_play()
 	_expect(not room.play.is_closed() and room.energy == [FULL, FULL], "a fresh staff is rested and the restaurant open")
+
+
+func _check_recipes(room: RestaurantRoom) -> void:
+	var salad := GameData.recipe_items.get_item("Garden Salad")
+	var needed := RestaurantRoom.ingredients_of(salad)
+	_expect(needed.size() == 3 and needed.values().all(func(count: int) -> bool: return count == 1), "Garden Salad takes one each of salad, tomato, and egg")
+	_expect(RestaurantRoom.ingredients_of(GameData.recipe_items.get_item("Espresso")).values().has(2), "a name listed twice is needed twice")
+	_expect(room.menu_choices("Starter").size() > 3, "offline every recipe is on offer")
+	room.known_recipes = {5000008: 2}
+	room.ingredients = {4000034: 1}
+	_expect(room.menu_choices("Starter") == [salad] and room.recipe_for("Starter") == salad, "signed in, only learned recipes can be on the menu")
+	room.menu = {"Starter": 5000000}
+	_expect(room.recipe_for("Starter") == salad, "a saved menu dish that is not learned is not served")
+	_expect(room.learnable_recipes()[0] == salad, "known recipes come first in the form")
+	_expect(room.describe_recipe(salad).begins_with("Garden Salad, Standard (level 2); needs") and room.describe_recipe(salad).contains("Salad 1/1"), "the form shows the level and what is held, got %s" % room.describe_recipe(salad))
+	_expect(not room.market_ingredients().is_empty() and room.market_ingredients().all(func(ingredient: Dictionary) -> bool: return ingredient.get("noCoinShop") != true), "the market sells only coin-market ingredients")
+	room.known_recipes = {}
+	room.ingredients = {}
+	room.menu = {}
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

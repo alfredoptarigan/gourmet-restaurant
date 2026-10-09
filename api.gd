@@ -82,6 +82,28 @@ func sell(item_id: int) -> Dictionary:
 	return await _trade("/shop/sell", item_id)
 
 
+## The recipes the player knows (recipe id -> level) and the ingredients they hold
+## (ingredient id -> quantity). A new player is given the starting ones here.
+func fetch_kitchen() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/kitchen")
+
+
+## Spends one set of the recipe's ingredients to learn it or take it a level higher.
+func learn_recipe(recipe_id: int) -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/kitchen/learn", {"recipeId": recipe_id})
+
+
+func buy_ingredient(ingredient_id: int) -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/kitchen/buy-ingredient", {"ingredientId": ingredient_id})
+
+
+func _trade_coins(method: HTTPClient.Method, path: String, body: Dictionary) -> Dictionary:
+	var result := await _request(method, path, body)
+	if result["ok"] and result["data"].get("coins") is float:
+		profile["coins"] = result["data"]["coins"]
+	return result
+
+
 ## Pays for something that is used up at once, like food for the staff.
 func use_item(item_id: int) -> Dictionary:
 	return await _trade("/shop/use", item_id)

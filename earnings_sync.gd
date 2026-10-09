@@ -36,6 +36,12 @@ func set_confirmed_coins(coins: int) -> void:
 	_announce()
 
 
+## Learning a recipe changed the gourmet points: take the server's new figure.
+func set_confirmed_points(points: int) -> void:
+	_confirmed_points = points
+	_announce()
+
+
 func shown_coins() -> int:
 	return (_confirmed_coins + (_unsent_dishes + _sending_dishes) * COINS_PER_DISH
 			+ (_unsent_extras + _sending_extras) * COINS_PER_EXTRA)

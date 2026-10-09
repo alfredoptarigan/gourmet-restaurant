@@ -61,6 +61,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Menu"
 
+[node name="Recipes" type="Button" parent="Hud/Bar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Recipes"
+
 [node name="Staff" type="Button" parent="Hud/Bar"]
 unique_name_in_owner = true
 layout_mode = 2
