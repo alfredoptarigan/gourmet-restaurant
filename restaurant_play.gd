@@ -57,8 +57,11 @@ static func actor_direction_for(item_rotation: int) -> int:
 	return ITEM_ROTATION_TO_ACTOR_DIRECTION[posmod(item_rotation, ITEM_ROTATION_TO_ACTOR_DIRECTION.size())]
 
 
-## Staffs the first kitchen with one chef and one waiter and opens the door.
-func start(restaurant_room: RestaurantRoom, door: RoomItem) -> void:
+## Opens the restaurant with as many staff as the level allows.
+## ponytail: the original lets the player hire friends and give each a job. Until hiring
+## exists the roles are dealt out by rule: one chef per kitchen appliance, as long as one
+## employee is left to wait tables, and every other employee is a waiter.
+func start(restaurant_room: RestaurantRoom, door: RoomItem, employee_limit: int = 2) -> void:
 	room = restaurant_room
 	_has_door = door != null
 	if not _has_door:
@@ -70,14 +73,20 @@ func start(restaurant_room: RestaurantRoom, door: RoomItem) -> void:
 	if kitchens.is_empty():
 		push_warning("RestaurantPlay: no kitchen, so nothing can be cooked")
 		return
-	var chef := Chef.new()
-	_add_actor(chef, [CHEF_HAT])
-	chef.start(self, kitchens[0])
-	chefs.append(chef)
-	var waiter := Waiter.new()
-	_add_actor(waiter, [])
-	waiter.start(self, kitchens[0], [chef.tile])
-	waiters.append(waiter)
+	var chef_count := clampi(employee_limit - 1, 1, kitchens.size())
+	var taken_tiles: Array[Vector2i] = []
+	for index in chef_count:
+		var chef := Chef.new()
+		_add_actor(chef, [CHEF_HAT])
+		chef.start(self, kitchens[index])
+		chefs.append(chef)
+		taken_tiles.append(chef.tile)
+	for index in maxi(1, employee_limit - chef_count):
+		var waiter := Waiter.new()
+		_add_actor(waiter, [])
+		waiter.start(self, kitchens[index % kitchens.size()], taken_tiles)
+		waiters.append(waiter)
+		taken_tiles.append(waiter.tile)
 
 
 func _process(delta: float) -> void:

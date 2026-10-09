@@ -105,6 +105,7 @@ func _check_room() -> void:
 		_expect(Sounds.has_sound(sound_name), "%s should have been extracted" % sound_name)
 	_expect(Sounds.has_sound("MusicRestaurant") and not Sounds.has_sound("NoSuchSound"), "sounds are found by class name")
 	Sounds.play("NoSuchSound")
+	_check_staffing(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -120,6 +121,7 @@ func _check_simulation(room: RestaurantRoom) -> void:
 	var most_dishes := 0
 	var most_overlays := 0
 	var saw_empty_plate := false
+	var saw_emotion := false
 	var seconds := 0.0
 	while seconds < SIMULATED_SECONDS:
 		play.tick(SIMULATION_STEP)
@@ -133,6 +135,8 @@ func _check_simulation(room: RestaurantRoom) -> void:
 			if room._dish_sprites[order].frame == last_frame:
 				saw_empty_plate = true
 		for customer in play.customers:
+			if customer.emotion != Customer.Emotion.NONE and customer.has_node("Emotion"):
+				saw_emotion = true
 			states_seen[customer.state] = true
 			if customer.state == Customer.State.DECIDING:
 				_expect(customer.tile == customer.chair.tile, "a seated customer should be on its chair's tile")
@@ -141,6 +145,7 @@ func _check_simulation(room: RestaurantRoom) -> void:
 	_expect(play.happy_customers > 0, "at least one customer should leave happy in %d simulated seconds" % SIMULATED_SECONDS)
 	_expect(play.coins > 0 and play.coins == int(play.gourmet_points) * 2, "each cleared plate should pay its recipe's 2 coins, got %d coins for %d dishes" % [play.coins, int(play.gourmet_points)])
 	_expect(play.customers.size() <= room.items_of_type("chairItem").size() + 2, "customers should not pile up, got %d" % play.customers.size())
+	_expect(saw_emotion, "a customer who gives up should leave with an emotion bubble")
 	_expect(most_dishes > 0, "a served dish should be drawn on its table")
 	_expect(saw_empty_plate, "a dish should end on its last frame, the empty plate")
 	_expect(most_overlays > 0, "a seated customer should get the chair's backrest drawn over them")
@@ -233,6 +238,24 @@ func _check_login_screen() -> void:
 	await get_tree().process_frame
 	_expect(message != null and message.text == "Enter a username and a password.", "an empty form should ask for both fields, got '%s'" % (message.text if message else ""))
 	screen.queue_free()
+
+
+func _check_staffing(room: RestaurantRoom) -> void:
+	const STOVE := 3070000
+	room.stop_play()
+	room.place_item(STOVE, Vector2i(4, 1), 3)
+	room.level = 4   # three employees
+	room.start_play()
+	_expect(room.play.chefs.size() == 2 and room.play.waiters.size() == 1, "three employees and two stoves make two chefs and a waiter, got %d and %d" % [room.play.chefs.size(), room.play.waiters.size()])
+	var tiles := {}
+	for actor: RoomActor in room.play.chefs + room.play.waiters:
+		tiles[actor.tile] = true
+	_expect(tiles.size() == 3, "staff should each stand on their own tile")
+	room.stop_play()
+	room.remove_item(room.item_at(Vector2i(4, 1)))
+	room.level = 1
+	room.start_play()
+	_expect(room.play.chefs.size() == 1 and room.play.waiters.size() == 1, "level 1 has one chef and one waiter")
 
 
 func _check_editor(room: RestaurantRoom) -> void:

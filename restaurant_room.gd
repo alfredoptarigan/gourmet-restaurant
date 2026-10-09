@@ -21,6 +21,10 @@ const TABLE_TYPE := "tableItem"
 const CHAIR_TYPE := "chairItem"
 const WALL_DECORATION_TYPE := "wallDecorationItem"
 const CHAIR_OVERLAY_SUFFIX := "Overlay"
+const EMOTION_SPRITE := "Emotions"
+const EMOTION_NODE := "Emotion"
+## Above the head of a standing character, in original-game pixels from its tile.
+const EMOTION_OFFSET := Vector2(0, -52)
 ## Where the middle of the floor sits on the 760 x 600 stage.
 const FLOOR_CENTER_ON_SCREEN := Vector2(380, 310)
 ## Draw order inside one tile, on top of the item's own (see RoomActor.DRAW_ORDER_STEP).
@@ -114,6 +118,7 @@ func _process(_delta: float) -> void:
 		return
 	_sync_dishes()
 	_sync_chair_overlays()
+	_sync_emotions()
 	hud.set_demand(play.demand)
 
 
@@ -234,7 +239,7 @@ func start_play() -> void:
 	play.name = "Play"
 	add_child(play)
 	var doors := items_of_type(DOOR_TYPE)
-	play.start(self, doors[0] if not doors.is_empty() else null)
+	play.start(self, doors[0] if not doors.is_empty() else null, int(Levels.row(level)["employees"]))
 	play.sound_wanted.connect(Sounds.play)
 	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
@@ -414,3 +419,16 @@ func _sync_chair_overlays() -> void:
 		elif not seated and overlay != null:
 			overlay.queue_free()
 			_chair_overlays.erase(chair)
+
+
+## Shows why an unhappy customer is leaving, as the original's bubble over their head.
+func _sync_emotions() -> void:
+	for customer in play.customers:
+		if customer.emotion == Customer.Emotion.NONE or customer.has_node(EMOTION_NODE):
+			continue
+		var bubble := _game_sprites.make_sprite(EMOTION_SPRITE, customer.emotion)
+		if bubble == null:
+			continue
+		bubble.name = EMOTION_NODE
+		bubble.position = EMOTION_OFFSET
+		customer.add_child(bubble)

@@ -5,6 +5,9 @@ extends RoomActor
 ## Not ported yet: trash, toilets and sinks, drinks, arcade machines, the outdoor area, and
 ## waiting for a table to free up (a customer with no usable table just leaves unhappy).
 
+## Customer.EMOTION_*: the frame of the Emotions sprite shown over an unhappy customer.
+enum Emotion { NONE = -1, NO_SEAT = 0, DIRTY = 1, WAIT_TOO_LONG = 2, DECOR = 3, NO_TABLE = 4 }
+
 enum State { WAITING_TO_SIT, WALKING_TO_CHAIR, DECIDING, WAITING, WAITING_FOR_FOOD, EATING, PAYING, LEAVING, LEFT }
 
 ## Customer.as timers, in seconds.
@@ -20,6 +23,7 @@ var state: int = State.WAITING_TO_SIT
 var chair: RoomItem
 var order: DishOrder
 var left_happy := false
+var emotion: int = Emotion.NONE
 
 var _timer := 0.0
 var _door_tile: Vector2i
@@ -40,7 +44,7 @@ func tick(delta: float) -> void:
 	match state:
 		State.WAITING_TO_SIT:
 			if not _walk_to_free_chair() and _timer <= 0.0:
-				leave_unhappy()
+				leave_unhappy(Emotion.NO_SEAT)
 		State.WALKING_TO_CHAIR:
 			if not is_walking():
 				_sit()
@@ -49,7 +53,7 @@ func tick(delta: float) -> void:
 				_order()
 		State.WAITING, State.WAITING_FOR_FOOD:
 			if _timer <= 0.0:
-				leave_unhappy()
+				leave_unhappy(Emotion.WAIT_TOO_LONG)
 		State.EATING:
 			order.eaten = clampf(1.0 - _timer / EATING_TIME, 0.0, 1.0)
 			if _timer <= 0.0:
@@ -89,7 +93,8 @@ func leave_happy() -> void:
 	_leave()
 
 
-func leave_unhappy() -> void:
+func leave_unhappy(why: int) -> void:
+	emotion = why
 	play.add_demand(RestaurantPlay.DEMAND_BONUS_UNHAPPY_CUSTOMER)
 	_leave()
 
@@ -117,7 +122,7 @@ func _sit() -> void:
 func _order() -> void:
 	var table := play.room.table_for_chair(chair)
 	if table == null or table.table_top_order != null:
-		leave_unhappy()
+		leave_unhappy(Emotion.NO_TABLE)
 		return
 	order = play.create_order(self, table)
 	_timer = WAITING_FOR_ORDER_TIME
