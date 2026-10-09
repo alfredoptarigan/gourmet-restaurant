@@ -6,7 +6,7 @@ import zlib
 
 from PIL import Image
 
-from extract_sprites import SpriteError, build_sheet, exported_sprite_names, frame_bounds, parse_origin, sheet_columns
+from extract_sprites import SpriteError, build_sheet, exported_sprite_names, frame_bounds, parse_origin, sheet_columns, sheet_fits
 
 DEFINE_SPRITE = 39
 SYMBOL_CLASS = 76
@@ -102,6 +102,17 @@ class SheetTest(unittest.TestCase):
 
     def test_a_frame_wider_than_the_maximum_still_gets_one_column(self):
         self.assertEqual(sheet_columns(frame_count=3, frame_width=5000, max_width=4096), 1)
+
+    def test_a_sheet_fits_when_its_grid_stays_inside_the_limit(self):
+        self.assertTrue(sheet_fits(frame_count=4, frame_width=100, frame_height=100, max_size=400))
+        self.assertTrue(sheet_fits(frame_count=16, frame_width=100, frame_height=100, max_size=400))
+
+    def test_a_sheet_does_not_fit_when_it_needs_too_many_rows(self):
+        self.assertFalse(sheet_fits(frame_count=17, frame_width=100, frame_height=100, max_size=400))
+
+    def test_a_sheet_does_not_fit_when_one_frame_is_too_big(self):
+        self.assertFalse(sheet_fits(frame_count=1, frame_width=500, frame_height=100, max_size=400))
+        self.assertFalse(sheet_fits(frame_count=1, frame_width=100, frame_height=500, max_size=400))
 
     def test_frames_are_laid_out_left_to_right_then_top_to_bottom(self):
         colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255)]

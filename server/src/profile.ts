@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { requireAuth, type AuthEnv } from './auth.ts';
 import type { Sql } from './db.ts';
 import { ApiError, fail, ok, parseBody } from './http.ts';
+import { levelFor, rewardBetween } from './levels.ts';
 
 const MAX_SAVE_BYTES = 256 * 1024;
 
@@ -21,17 +22,34 @@ const MAX_DISHES_PER_MINUTE = 28;
 // Allowance stops building after this long without a report, so time away is not a jackpot.
 const MAX_ALLOWANCE_SECONDS = 600;
 const MAX_REPORTED_DISHES = 1000;
+// GameWorld.GOURMET_POINTS_PER_DISH, for a level 1 recipe.
+const GOURMET_POINTS_PER_DISH = 1;
 
 // The client says how many dishes were paid for, never how many coins that is worth.
 const earningsSchema = z.strictObject({
   dishes: z.number().int().min(1).max(MAX_REPORTED_DISHES),
 });
 
-type ProfileRow = { username: string; coins: string; cash: string; data: Record<string, unknown>; version: number };
+type ProfileRow = {
+  username: string;
+  coins: string;
+  cash: string;
+  gourmet_points: number;
+  data: Record<string, unknown>;
+  version: number;
+};
 
 function toProfile(row: ProfileRow) {
-  // bigint columns arrive as strings; game currency stays far below 2^53.
-  return { username: row.username, coins: Number(row.coins), cash: Number(row.cash), version: row.version, data: row.data };
+  return {
+    username: row.username,
+    // bigint columns arrive as strings; game currency stays far below 2^53.
+    coins: Number(row.coins),
+    cash: Number(row.cash),
+    gourmetPoints: row.gourmet_points,
+    level: levelFor(row.gourmet_points),
+    version: row.version,
+    data: row.data,
+  };
 }
 
 export function profileRoutes(sql: Sql): Hono<AuthEnv> {
@@ -40,7 +58,7 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
 
   routes.get('/', async (c) => {
     const rows = await sql<ProfileRow[]>`
-      select u.username, p.coins, p.cash, p.data, p.version
+      select u.username, p.coins, p.cash, p.gourmet_points, p.data, p.version
       from profiles p join users u on u.id = p.user_id
       where p.user_id = ${c.get('userId')}`;
     const row: ProfileRow | undefined = rows[0];
@@ -72,33 +90,34 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
 
   routes.post('/earnings', async (c) => {
     const { dishes } = await parseBody(c, earningsSchema);
-    // One statement, so two reports arriving together cannot both spend the same allowance.
-    // The clock only restarts when something was credited: a report that came too early
-    // must not push the next payout further away.
-    const rows = await sql<{ coins: string; credited: number }[]>`
-      with allowance as (
-        select user_id, least(
-          ${dishes}::int,
-          floor(
-            least(extract(epoch from now() - last_earned_at), ${MAX_ALLOWANCE_SECONDS}::int)
-            * ${MAX_DISHES_PER_MINUTE}::int / 60.0
-          )::int
-        ) as credited
-        from profiles
-        where user_id = ${c.get('userId')}
-        for update
-      )
-      update profiles
-      set coins = profiles.coins + allowance.credited * ${COINS_PER_DISH}::int,
-          last_earned_at = case when allowance.credited > 0 then now() else profiles.last_earned_at end
-      from allowance
-      where profiles.user_id = allowance.user_id
-      returning profiles.coins, allowance.credited`;
-    const row: { coins: string; credited: number } | undefined = rows[0];
-    if (!row) {
-      throw new ApiError(404, 'Profile not found');
-    }
-    return ok(c, { credited: row.credited, coins: Number(row.coins) });
+    const userId = c.get('userId');
+    // The row is locked for the whole read-decide-write, so two reports arriving together
+    // cannot both spend the same allowance or both collect the same level-up reward.
+    const earned = await sql.begin(async (transaction) => {
+      const rows = await transaction<{ coins: string; gourmet_points: number; elapsed: string }[]>`
+        select coins, gourmet_points, extract(epoch from now() - last_earned_at) as elapsed
+        from profiles where user_id = ${userId} for update`;
+      const before: { coins: string; gourmet_points: number; elapsed: string } | undefined = rows[0];
+      if (!before) {
+        throw new ApiError(404, 'Profile not found');
+      }
+      const allowance = Math.floor((Math.min(Number(before.elapsed), MAX_ALLOWANCE_SECONDS) * MAX_DISHES_PER_MINUTE) / 60);
+      const credited = Math.max(0, Math.min(dishes, allowance));
+      const gourmetPoints = before.gourmet_points + credited * GOURMET_POINTS_PER_DISH;
+      const level = levelFor(gourmetPoints);
+      const levelUpReward = rewardBetween(levelFor(before.gourmet_points), level);
+      const coins = Number(before.coins) + credited * COINS_PER_DISH + levelUpReward;
+      // The clock only restarts when something was credited: a report that came too early
+      // must not push the next payout further away.
+      if (credited > 0) {
+        await transaction`
+          update profiles
+          set coins = ${coins}, gourmet_points = ${gourmetPoints}, last_earned_at = now()
+          where user_id = ${userId}`;
+      }
+      return { credited, coins, gourmetPoints, level, levelUpReward };
+    });
+    return ok(c, earned);
   });
 
   return routes;

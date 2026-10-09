@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { hashPassword, verifyPassword } from '../src/auth.ts';
 import { loadConfig } from '../src/config.ts';
+import { LEVELS, levelFor, rewardBetween } from '../src/levels.ts';
 import { createRateLimiter } from '../src/rate-limit.ts';
 
 test('a hashed password verifies only against the same password', async () => {
@@ -55,4 +56,28 @@ test('config reads the database url and defaults the port', () => {
 test('config names the missing or invalid variable', () => {
   assert.throws(() => loadConfig({}), /DATABASE_URL/);
   assert.throws(() => loadConfig({ DATABASE_URL: 'postgres://localhost/x', PORT: 'abc' }), /PORT/);
+});
+
+test('the level table starts at zero points and only climbs', () => {
+  assert.equal(LEVELS.length, 66);
+  assert.equal(LEVELS[0].points, 0);
+  for (let index = 1; index < LEVELS.length; index += 1) {
+    assert.ok(LEVELS[index].points > LEVELS[index - 1].points, `level ${index + 1}`);
+  }
+});
+
+test('a level is the last threshold the points have reached', () => {
+  assert.equal(levelFor(0), 1);
+  assert.equal(levelFor(49), 1);
+  assert.equal(levelFor(50), 2);
+  assert.equal(levelFor(99), 3);
+  assert.equal(levelFor(100), 4);
+  assert.equal(levelFor(999_999_999), 66);
+});
+
+test('the reward between two levels is the sum of every level entered', () => {
+  assert.equal(rewardBetween(1, 1), 0);
+  assert.equal(rewardBetween(1, 2), 3500);
+  assert.equal(rewardBetween(1, 4), 7000);
+  assert.equal(rewardBetween(3, 4), 1000);
 });

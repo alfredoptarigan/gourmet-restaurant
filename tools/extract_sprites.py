@@ -6,7 +6,8 @@ For raw/<group>_asset.swf this writes
   assets/sprites/<group>/<ClassName>.png   every timeline frame of the symbol, in a grid
   assets/sprites/<group>.json              frame count, grid columns, frame size, origin, bounds
 
-The art is vector, so JPEXS rasterises it at ZOOM times the original size. `origin` is where
+The art is vector, so JPEXS rasterises it at ZOOM times the original size (each sprite's
+`zoom` says what it got: long animations fall back to 1). `origin` is where
 the symbol's registration point sits inside one frame, in sheet pixels; the game positions
 that point on the tile, exactly as Flash positioned the MovieClip.
 
@@ -33,7 +34,8 @@ DEFAULT_JAVA = '/opt/homebrew/opt/openjdk/bin/java'
 DEFAULT_FFDEC_JAR = '~/.local/opt/jpexs/ffdec.jar'
 
 ZOOM = 2
-MAX_SHEET_WIDTH = 4096
+# Sheets are single textures, so they must stay inside what a GPU will load.
+MAX_SHEET_SIZE = 8192
 
 SWF_HEADER_BYTES = 8
 TAG_END = 0
@@ -124,6 +126,12 @@ def sheet_columns(frame_count: int, frame_width: int, max_width: int) -> int:
     return max(1, min(frame_count, max_width // max(1, frame_width)))
 
 
+def sheet_fits(frame_count: int, frame_width: int, frame_height: int, max_size: int) -> bool:
+    columns = sheet_columns(frame_count, frame_width, max_size)
+    rows = (frame_count + columns - 1) // columns
+    return frame_width * columns <= max_size and frame_height * rows <= max_size
+
+
 def build_sheet(frames: list, columns: int) -> Image.Image:
     frame_width, frame_height = frames[0].size
     rows = (len(frames) + columns - 1) // columns
@@ -161,24 +169,37 @@ def frame_files(sprite_dir: Path, extension: str) -> list:
     return sorted(sprite_dir.glob(f'*.{extension}'), key=lambda path: int(path.stem))
 
 
-def write_sprite(name: str, png_dir: Path, svg_dir: Path, sheets_dir: Path) -> dict:
+def halve(frame: Image.Image) -> Image.Image:
+    return frame.resize(((frame.width + 1) // 2, (frame.height + 1) // 2), Image.LANCZOS)
+
+
+def write_sprite(name: str, png_dir: Path, svg_dir: Path, sheets_dir: Path):
+    """Writes the sheet and returns its metadata, or None if it cannot fit in one texture."""
     png_files = frame_files(png_dir, 'png')
     svg_files = frame_files(svg_dir, 'svg')
     if not png_files or not svg_files:
         raise SpriteError(f'{name}: JPEXS exported no frames')
     frames = [Image.open(path).convert('RGBA') for path in png_files]
-    frame_width, frame_height = frames[0].size
     if any(frame.size != frames[0].size for frame in frames):
         raise SpriteError(f'{name}: frames differ in size, so one origin cannot describe them all')
+    zoom = ZOOM
+    # Long full-screen animations do not fit at full zoom: fall back to the original size.
+    while zoom > 1 and not sheet_fits(len(frames), *frames[0].size, MAX_SHEET_SIZE):
+        frames = [halve(frame) for frame in frames]
+        zoom //= 2
+    frame_width, frame_height = frames[0].size
+    if not sheet_fits(len(frames), frame_width, frame_height, MAX_SHEET_SIZE):
+        return None
     origin_x, origin_y = parse_origin(svg_files[0].read_text(encoding='utf-8'), name)
-    columns = sheet_columns(len(frames), frame_width, MAX_SHEET_WIDTH)
+    columns = sheet_columns(len(frames), frame_width, MAX_SHEET_SIZE)
     build_sheet(frames, columns).save(sheets_dir / f'{name}.png')
-    origin = (round(origin_x * ZOOM, 2), round(origin_y * ZOOM, 2))
+    origin = (round(origin_x * zoom, 2), round(origin_y * zoom, 2))
     return {
         'frames': len(frames),
         'columns': columns,
         'width': frame_width,
         'height': frame_height,
+        'zoom': zoom,
         'origin': list(origin),
         # Flash sized an item's tile footprint from its first frame, so that frame is measured.
         'bounds': frame_bounds(frames[0], origin),
@@ -198,6 +219,7 @@ def extract_group(group: str, java: str, ffdec: Path) -> str:
     ids = sorted(names)
     sprites = {}
     skipped = []
+    too_large = []
     with tempfile.TemporaryDirectory() as png_root, tempfile.TemporaryDirectory() as svg_root:
         run_jpexs(java, ffdec, swf_path, Path(png_root), 'png', ids, ZOOM)
         # The SVG is read only for the registration point, so it is exported unzoomed.
@@ -208,12 +230,21 @@ def extract_group(group: str, java: str, ffdec: Path) -> str:
             if character_id not in png_dirs or character_id not in svg_dirs:
                 skipped.append(name)  # an empty symbol: JPEXS has nothing to draw
                 continue
-            sprites[name] = write_sprite(name, png_dirs[character_id], svg_dirs[character_id], sheets_dir)
+            sprite = write_sprite(name, png_dirs[character_id], svg_dirs[character_id], sheets_dir)
+            if sprite is None:
+                too_large.append(name)
+                (sheets_dir / f'{name}.png').unlink(missing_ok=True)
+            else:
+                sprites[name] = sprite
     metadata = {'zoom': ZOOM, 'sprites': dict(sorted(sprites.items()))}
     metadata_path = sheets_dir.parent / f'{group}.json'
     metadata_path.write_text(json.dumps(metadata, indent=1) + '\n', encoding='utf-8')
     summary = f'{swf_path.name}: {len(sprites)} sprites -> {sheets_dir.relative_to(PROJECT_ROOT)}'
-    return summary + (f' (no frames, skipped: {", ".join(skipped)})' if skipped else '')
+    if skipped:
+        summary += f'\n  no frames, skipped: {", ".join(skipped)}'
+    if too_large:
+        summary += f'\n  too large for one texture, skipped: {", ".join(too_large)}'
+    return summary
 
 
 def main(arguments: list) -> int:
