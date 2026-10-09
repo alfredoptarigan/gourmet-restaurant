@@ -8,6 +8,8 @@ extends Node
 signal coins_changed(coins: int)
 ## A customer's meal was paid for (its plate was cleared).
 signal dish_paid
+## Something happened that the original marks with a sound; the value is the sound's name.
+signal sound_wanted(sound_name: String)
 
 ## WorldRestaurantPlay and GameWorld constants.
 const CUSTOMERS_PER_MINUTE_PER_DEMAND := 0.05
@@ -142,6 +144,7 @@ func clear_empty_plate(order: DishOrder) -> void:
 	gourmet_points += GOURMET_POINTS_PER_DISH
 	coins_changed.emit(coins)
 	dish_paid.emit()
+	sound_wanted.emit("SfxCash")
 
 
 func add_demand(change: float) -> void:

@@ -8,6 +8,9 @@ extends Node2D
 ## (WorldRestaurant.addDefaultWalls, fillBaseArea).
 
 const LOGIN_SCENE := "res://login.tscn"
+const RESTAURANT_MUSIC := "MusicRestaurant"
+const EDITOR_MUSIC := "MusicEditor"
+const LEVEL_UP_SOUND := "SfxLevelUp"
 const WALL_ITEM := "White Walls"
 const WALL_CORNER_ITEM := "Wall Corner"
 ## Item rotation is the timeline frame: 0 is a wall along x = 0, 1 a wall along y = 0.
@@ -232,6 +235,8 @@ func start_play() -> void:
 	add_child(play)
 	var doors := items_of_type(DOOR_TYPE)
 	play.start(self, doors[0] if not doors.is_empty() else null)
+	play.sound_wanted.connect(Sounds.play)
+	Sounds.play_music(RESTAURANT_MUSIC)
 	if _sync != null:
 		play.dish_paid.connect(_sync.add_dish)
 	else:
@@ -290,6 +295,7 @@ func _on_progress(gourmet_points: int) -> void:
 	if reached <= level:
 		return
 	level = reached
+	Sounds.play(LEVEL_UP_SOUND)
 	if not Api.is_signed_in():
 		hud.show_message("Level %d!" % level)
 	resize(Levels.room_size(level))
@@ -304,6 +310,7 @@ func _decorate() -> void:
 	editor.name = "Editor"
 	add_child(editor)
 	editor.finished.connect(_on_editor_finished)
+	Sounds.play_music(EDITOR_MUSIC)
 	editor.start(self)
 
 
@@ -315,6 +322,7 @@ func _on_editor_finished() -> void:
 
 
 func _sign_out() -> void:
+	Sounds.stop_music()
 	if Api.is_signed_in():
 		await Api.logout()
 	get_tree().change_scene_to_file(LOGIN_SCENE)

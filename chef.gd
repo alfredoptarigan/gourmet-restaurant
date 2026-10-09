@@ -38,6 +38,7 @@ func cook(order: DishOrder) -> void:
 	order.customer.wait_for_food()
 	_timer = COOK_DURATION
 	avatar.play(Avatar.Animations.COOKING)
+	play.sound_wanted.emit("SfxCooking")
 	state = State.COOKING
 
 

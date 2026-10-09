@@ -24,6 +24,7 @@ const ICON_SIZE := Vector2i(40, 40)
 const VALID_TINT := Color(0.7, 1.0, 0.7, 0.85)
 const INVALID_TINT := Color(1.0, 0.5, 0.5, 0.85)
 const TURN_COUNT := 4
+const PLACE_SOUND := "SfxPlaceItem"
 
 var room: RestaurantRoom
 ## Item id -> how many the player owns, placed or not.
@@ -99,6 +100,7 @@ func place_at(tile: Vector2i) -> bool:
 	if not is_holding() or not room.can_place(held_id, tile, _turns_at(tile)):
 		return false
 	room.place_item(held_id, tile, _turns_at(tile))
+	Sounds.play(PLACE_SOUND)
 	_release()
 	return true
 

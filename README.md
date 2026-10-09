@@ -11,7 +11,7 @@ The Decorate button lets you move furniture and buy more with those coins.
 The original game's art, sound, and data files are not distributed here. To run the
 project you need your own copy of the original resource files in `raw/` (git-ignored):
 
-- `indoor_asset.swf`, `avatar_asset.swf`, `game_asset.swf`, `outdoor_asset.swf`, `ingredient_asset.swf`, `perk_asset.swf`
+- `indoor_asset.swf`, `avatar_asset.swf`, `game_asset.swf`, `outdoor_asset.swf`, `ingredient_asset.swf`, `perk_asset.swf`, `sound_asset.swf`
 - `front.bin`, `avatar.bin`, `restaurant.bin`, `perk.bin`, `ingredient.bin`, `recipe.bin`,
   `quiz.bin`, `appointment.bin`, `challenge.bin`, `lang_en.bin`, `lang_fr.bin`, `model.bin`
 - `newsletter.xml`
@@ -27,6 +27,7 @@ Requirements: Godot 4.7, Python 3.9+ with Pillow, Java, and
 ```bash
 python3 tools/extract_data.py      # raw/*.bin -> data/*.json, assets/avatar/avatar.dae
 python3 tools/extract_sprites.py indoor avatar game outdoor ingredient perk   # -> assets/sprites/ (several minutes, about 300 MB)
+python3 tools/extract_sounds.py    # raw/sound_asset.swf -> assets/sounds/
 ```
 
 `extract_sprites.py` reads the `JAVA` and `FFDEC_JAR` environment variables if Java or JPEXS

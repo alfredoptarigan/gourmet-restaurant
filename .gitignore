@@ -5,6 +5,5 @@ export_presets.cfg
 raw/
 server/node_modules/
 server/.env
-assets/sprites/
 data/
-assets/avatar/
+assets/

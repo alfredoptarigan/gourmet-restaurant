@@ -96,8 +96,15 @@ func _check_room() -> void:
 	_expect(sync.shown_coins() == 4, "two unconfirmed dishes should show as 4 coins, got %d" % sync.shown_coins())
 	_expect(sync.shown_points() == 2, "two unconfirmed dishes should show as 2 gourmet points")
 	sync.free()
+	var sounds_wanted := {}
+	room.play.sound_wanted.connect(func(sound_name: String) -> void: sounds_wanted[sound_name] = true)
 	_check_avatar(room.play.waiters[0].avatar)
 	_check_simulation(room)
+	for sound_name: String in ["SfxCooking", "SfxEating", "SfxCash"]:
+		_expect(sounds_wanted.has(sound_name), "the simulation should ask for %s" % sound_name)
+		_expect(Sounds.has_sound(sound_name), "%s should have been extracted" % sound_name)
+	_expect(Sounds.has_sound("MusicRestaurant") and not Sounds.has_sound("NoSuchSound"), "sounds are found by class name")
+	Sounds.play("NoSuchSound")
 	await _check_editor(room)
 	room.queue_free()
 

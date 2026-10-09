@@ -77,6 +77,7 @@ func is_seated() -> bool:
 func eat_order() -> void:
 	order.served = true
 	avatar.play(Avatar.Animations.EAT)
+	play.sound_wanted.emit("SfxEating")
 	_timer = EATING_TIME
 	state = State.EATING
 
