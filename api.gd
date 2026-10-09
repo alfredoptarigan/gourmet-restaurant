@@ -20,6 +20,8 @@ var base_url := DEFAULT_BASE_URL
 var token := ""
 ## The profile as last fetched: username, coins, cash, version, data.
 var profile: Dictionary = {}
+## The friend's restaurant to open next, as the server sent it; empty when going home.
+var visiting: Dictionary = {}
 
 var _saving := false
 
@@ -145,6 +147,54 @@ func claim_food_king(choice: int) -> Dictionary:
 ## The restaurant perks in effect: kind -> {"value", "secondsLeft"}.
 func fetch_perks() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/shop/perks")
+
+
+## {"friends": [{"id", "username", "level", "avatar", "building"}], "incoming", "outgoing"}.
+func fetch_friends() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/friends")
+
+
+func request_friend(username: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/friends/request", {"username": username})
+
+
+func accept_friend(user_id: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/friends/accept", {"userId": user_id})
+
+
+## Ends a friendship, or withdraws or declines a request.
+func remove_friend(user_id: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/friends/remove", {"userId": user_id})
+
+
+func fetch_friend_restaurant(user_id: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/friends/%d/restaurant" % user_id)
+
+
+func visit_friend(user_id: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/friends/%d/visit" % user_id)
+
+
+func water_friend(user_id: int, plot: int) -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/friends/%d/water" % user_id, {"plot": plot})
+
+
+func fetch_mail() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/mail")
+
+
+## `kind` is "gift", "ingredient" (with `item_id`), or "message" (with `text`).
+func send_mail(to: int, kind: String, item_id: int = 0, text: String = "") -> Dictionary:
+	var body := {"to": to, "kind": kind}
+	if kind == "ingredient":
+		body["itemId"] = item_id
+	elif kind == "message":
+		body["text"] = text
+	return await _request(HTTPClient.METHOD_POST, "/mail/send", body)
+
+
+func open_mail(mail_id: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/mail/%d/open" % mail_id)
 
 
 ## Pays for something that is used up at once, like food for the staff.

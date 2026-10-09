@@ -429,17 +429,19 @@ func _add_actor(actor: RoomActor, extra_items: Array) -> void:
 	actor.avatar.setup(_random_look() + extra_items, _pick(SKIN_COLOURS), _pick(HAIR_COLOURS))
 
 
-## The first employee is the player, and wears the look the player chose.
+## The first employee is the player, a hired friend wears their own look, and anyone else is
+## a stranger with a random one.
 func _add_staff(actor: RoomActor, employee: int, extra_items: Array) -> void:
 	actor.employee = employee
-	if employee != 0 or room.look.is_empty():
+	var dressed := room.look_of(employee)
+	if dressed.is_empty():
 		_add_actor(actor, extra_items)
 		return
 	room.item_layer.add_child(actor)
 	var worn: Array = []
-	for group_name: String in room.look["items"]:
-		worn.append({"name": room.look["items"][group_name], "group": group_name})
-	actor.avatar.setup(worn + extra_items, SKIN_COLOURS[room.look["skin"]], HAIR_COLOURS[room.look["hair"]])
+	for group_name: String in dressed["items"]:
+		worn.append({"name": dressed["items"][group_name], "group": group_name})
+	actor.avatar.setup(worn + extra_items, SKIN_COLOURS[dressed["skin"]], HAIR_COLOURS[dressed["hair"]])
 
 
 func _pick(options: Array) -> Variant:

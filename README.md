@@ -21,6 +21,10 @@ you earn, and holds your furniture.
   (double gourmet points).
 - **Street** goes outside to your building; **Customise** there changes its body, roof,
   walls, door, and banner, and the name on it.
+- **Friends** adds friends by name, accepts requests, visits their restaurants (and waters
+  their plots there), and sends them gifts, ingredients, and messages. Friends can work in
+  your restaurant: choose who each employee is in **Staff**. Mail arrives in the letter box;
+  friends' buildings stand beside yours on the street.
 - **Avatar** sets how you look. Your first employee is you.
 - Click trash on the floor to pick it up, and a broken toilet or arcade machine to repair it.
   A cleaner does both for you.

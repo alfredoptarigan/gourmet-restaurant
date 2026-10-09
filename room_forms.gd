@@ -43,22 +43,6 @@ func show_awards(progress: Dictionary) -> ChoicePanel:
 	return room.hud.open_choices("Awards", rows)
 
 
-## The daily quiz arrives in the letter box, as the original's mail did.
-## ponytail: only the quiz is delivered. Gifts and messages from friends come with friends.
-func open_quiz() -> void:
-	if not Api.is_signed_in():
-		room.hud.show_message("Sign in to get mail.")
-		return
-	var result := await Api.fetch_quiz()
-	if not result["ok"]:
-		room.hud.show_message(result["error"])
-		return
-	if result["data"].get("answered") == true:
-		room.hud.show_message("No new mail. A new quiz comes tomorrow.")
-		return
-	ask_quiz(result["data"])
-
-
 func ask_quiz(quiz: Dictionary) -> ChoicePanel:
 	var reward: String = GameData.ingredient_items.get_item_by_id(int(quiz.get("rewardIngredientId", 0))).get("name", "an ingredient")
 	var panel: ChoicePanel = room.hud.open_choices("Daily quiz: answer right to win %s" % reward, [
@@ -147,6 +131,13 @@ func choose_staff() -> ChoicePanel:
 	for index in staff.size():
 		var percent := roundi(room.energy[index] / RestaurantPlay.MAX_WORK_TIME * 100.0) if index < room.energy.size() else 100
 		rows.append({"label": "Employee %d (%d%% energy)" % [index + 1, percent], "options": RestaurantRoom.JOB_NAMES, "selected": staff[index]})
+	# WorldHire: every employee but the first (the player) can be a friend.
+	var names: Array = ["A stranger"] + room.friends.map(func(friend: Dictionary) -> String: return friend["username"])
+	if not room.friends.is_empty():
+		for index in range(1, staff.size()):
+			var friend_id := room.hired[index] if index < room.hired.size() else 0
+			var hired_at := room.friends.map(func(friend: Dictionary) -> int: return int(friend["id"])).find(friend_id)
+			rows.append({"label": "Employee %d is" % (index + 1), "options": names, "selected": hired_at + 1})
 	var panel: ChoicePanel = room.hud.open_choices("Staff", rows)
 	panel.chosen.connect(_on_staff_chosen)
 	return panel
@@ -154,7 +145,14 @@ func choose_staff() -> ChoicePanel:
 
 ## New jobs take effect at once: the restaurant closes and reopens with the new staff.
 func _on_staff_chosen(selections: Array[int]) -> void:
-	room.jobs = selections
+	var staff_count := room.staff_jobs().size()
+	room.jobs = selections.slice(0, staff_count)
+	if selections.size() > staff_count:
+		var hired: Array[int] = [0]
+		for choice in selections.slice(staff_count):
+			hired.append(int(room.friends[choice - 1]["id"]) if choice > 0 and choice <= room.friends.size() else 0)
+		room.hired = hired
+		room._save(RestaurantRoom.HIRED_KEY, room.hired)
 	room._reopen()
 	room._save(RestaurantRoom.JOBS_KEY, room.jobs)
 	room._save_energy()

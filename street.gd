@@ -3,7 +3,8 @@ extends Node2D
 ## The street outside: the player's building between the original's "invite a friend"
 ## houses. Port of a part of WorldStreet.as.
 ##
-## ponytail: one building and two empty lots. Friends' buildings join the row with friends.
+## Friends' buildings stand in the row, alternately right and left of the player's, with the
+## invite houses at the ends. Clicking a friend's building visits their restaurant.
 
 const RESTAURANT_SCENE := "res://restaurant_room.tscn"
 const STREET_MUSIC := "MusicStreet"
@@ -40,6 +41,9 @@ var _view := BuildingView.new()
 var _layer := CanvasLayer.new()
 var _message := Label.new()
 var _choices: ChoicePanel
+## Slot (buildings right of the player's are positive) -> the friend whose building is there.
+var _neighbours: Dictionary = {}
+var _neighbour_views: Array[Node2D] = []
 
 
 func _ready() -> void:
@@ -57,6 +61,58 @@ func _ready() -> void:
 			for item_id: String in inventory["data"]["items"]:
 				owned[int(item_id)] = int(inventory["data"]["items"][item_id])
 	_view.show_building(building)
+	if Api.is_signed_in():
+		var friend_list := await Api.fetch_friends()
+		if friend_list["ok"]:
+			show_neighbours(RoomSocial.valid_friends(friend_list["data"].get("friends")))
+	else:
+		show_neighbours([])
+
+
+## The slot of the `index`th friend: 1, -1, 2, -2, and so on.
+static func slot_of(index: int) -> int:
+	return (index / 2 + 1) * (1 if index % 2 == 0 else -1)
+
+
+func show_neighbours(friends: Array) -> void:
+	for view in _neighbour_views:
+		view.queue_free()
+	_neighbour_views.clear()
+	_neighbours.clear()
+	var library := SpriteLibrary.load_group("outdoor")
+	for index in friends.size():
+		var their := valid_building(friends[index].get("building"))
+		var view := BuildingView.new()
+		view.position = Vector2(slot_of(index) * BUILDING_GAP, 0)
+		add_child(view)
+		view.show_building(their if not their.is_empty() else STARTER_BUILDING)
+		_neighbours[slot_of(index)] = friends[index]
+		_neighbour_views.append(view)
+	# The invite houses fill the next lot on each side.
+	for index in INVITE_HOUSES.size():
+		var house_class: String = GameData.building_items.get_item_by_id(INVITE_HOUSES[index]).get("className", "")
+		if not library.has_sprite(house_class):
+			continue
+		var side := 1 if index == 0 else -1
+		var slot := side
+		while _neighbours.has(slot):
+			slot += side
+		var house := library.make_sprite(house_class)
+		house.position = Vector2(slot * BUILDING_GAP, 0)
+		add_child(house)
+		_neighbour_views.append(house)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and event.button_mask & (MOUSE_BUTTON_MASK_RIGHT | MOUSE_BUTTON_MASK_MIDDLE) != 0:
+		position.x += event.relative.x
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var slot := roundi(get_local_mouse_position().x / BUILDING_GAP)
+		if _neighbours.has(slot):
+			_say("Visiting %s..." % _neighbours[slot]["username"])
+			var error := await RoomSocial.visit_friend(get_tree(), int(_neighbours[slot]["id"]))
+			if not error.is_empty():
+				_say(error)
 
 
 ## A saved building as the game can use it: empty unless every piece is a known front piece.
@@ -96,13 +152,6 @@ func _draw_street() -> void:
 		strip.size = Vector2(1600, band[2])
 		strip.z_index = -5
 		add_child(strip)
-	var library := SpriteLibrary.load_group("outdoor")
-	for index in INVITE_HOUSES.size():
-		var house_class: String = GameData.building_items.get_item_by_id(INVITE_HOUSES[index]).get("className", "")
-		if library.has_sprite(house_class):
-			var house := library.make_sprite(house_class)
-			house.position = Vector2((index * 2 - 1) * BUILDING_GAP, 0)
-			add_child(house)
 
 
 func _build_buttons() -> void:

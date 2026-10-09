@@ -32,6 +32,7 @@ const MENU_KEY := "menu"
 const JOBS_KEY := "jobs"
 const AVATAR_KEY := "avatar"
 const ENERGY_KEY := "energy"
+const HIRED_KEY := "hired"
 const MUSIC_KEY := "music"
 ## The music the shop sells, and the type of the furniture that plays it.
 const MUSIC_GROUP := "Music"
@@ -144,6 +145,13 @@ var trash: Dictionary = {}
 var trash_timer := RestaurantPlay.TRASH_APPEAR_RATE
 
 var forms := RoomForms.new(self)
+var social := RoomSocial.new(self)
+## The friend's restaurant being visited, as the server sent it; empty at home.
+var host: Dictionary = {}
+## The player's friends (RoomSocial.valid_friends), and the friend hired as each employee
+## (a user id, or 0 for a stranger).
+var friends: Array = []
+var hired: Array[int] = []
 var overlays := RoomOverlays.new(self)
 var _sprites := SpriteLibrary.load_group("indoor")
 var _game_sprites := SpriteLibrary.load_group("game")
@@ -153,6 +161,9 @@ var _offline_points := 0
 
 
 func _ready() -> void:
+	if not Api.visiting.is_empty():
+		_ready_as_visitor()
+		return
 	var points := int(Api.profile.get("gourmetPoints", 0)) if Api.is_signed_in() else 0
 	level = Levels.level_for(points)
 	if Api.is_signed_in():
@@ -175,6 +186,10 @@ func _ready() -> void:
 					owned_music[item_id] = true
 		var saved_music: Variant = saved.get(MUSIC_KEY)
 		music_id = int(saved_music) if saved_music is float else 0
+		hired = valid_jobs(saved.get(HIRED_KEY), false)
+		var friend_list := await Api.fetch_friends()
+		if friend_list["ok"]:
+			friends = RoomSocial.valid_friends(friend_list["data"].get("friends"))
 	build(_saved_layout())
 	_connect_hud()
 	start_play()
@@ -193,15 +208,52 @@ func _saved_layout() -> Dictionary:
 
 
 ## Saved jobs as the game can use them: empty unless every entry is a known job.
-static func valid_jobs(saved: Variant) -> Array[int]:
+## With `jobs_only` false it checks a list of whole numbers instead (the hired friends' ids).
+static func valid_jobs(saved: Variant, jobs_only: bool = true) -> Array[int]:
 	var checked: Array[int] = []
 	if not saved is Array:
 		return checked
 	for entry: Variant in saved:
-		if not (entry is float or entry is int) or int(entry) not in RestaurantPlay.Job.values():
+		if not (entry is float or entry is int) or (jobs_only and int(entry) not in RestaurantPlay.Job.values()):
 			return []
 		checked.append(int(entry))
 	return checked
+
+
+## WorldRestaurantPlay in visit mode: a friend's restaurant runs as it would for them, but
+## nothing earned there is the visitor's. Only their garden can be helped with.
+## ponytail: the friend's own staff and menu run with every recipe at level 1; their
+## energy, trash, and perks stay theirs and are not shown.
+func _ready_as_visitor() -> void:
+	host = Api.visiting
+	Api.visiting = {}
+	level = clampi(int(host.get("level", 1)), 1, Levels.count())
+	jobs = valid_jobs(host.get("jobs"))
+	menu = valid_menu(host.get("menu"))
+	look = valid_look(host.get("avatar"))
+	var layout: Variant = host.get("layout")
+	build(layout if layout is Dictionary and layout.get("items") is Array else STARTER_LAYOUT)
+	hud.set_visiting(str(host.get("username", "")))
+	hud.sign_out_pressed.connect(_go_home)
+	hud.garden_pressed.connect(func() -> void: social.choose_friend_garden(host))
+	start_play()
+	Api.visit_friend(int(host.get("id", 0)))
+
+
+func _go_home() -> void:
+	get_tree().change_scene_to_file(RoomSocial.RESTAURANT_SCENE)
+
+
+## How an employee is dressed: the player's look for the first, a hired friend's for the
+## others, or nothing (a random stranger).
+func look_of(employee: int) -> Dictionary:
+	if employee == 0:
+		return look
+	var friend_id := hired[employee] if employee < hired.size() else 0
+	for friend: Dictionary in friends:
+		if int(friend["id"]) == friend_id:
+			return valid_look(friend.get("avatar"))
+	return {}
 
 
 ## Saved energy as it stands `now` (unix seconds): every employee kept working or resting
@@ -369,7 +421,7 @@ func click_tile(tile: Vector2i) -> void:
 			forms.open_awards()
 			return
 		if standing.has_type(MAIL_TYPE):
-			forms.open_quiz()
+			social.open_mailbox()
 			return
 	if item != null and item.is_broken():
 		play.fix_item(item)
@@ -591,6 +643,8 @@ func start_play() -> void:
 	play.start(self, staff)
 	play.sound_wanted.connect(Sounds.play)
 	_play_music()
+	if not host.is_empty():
+		return
 	if _sync != null:
 		play.award_progressed.connect(func(award: int) -> void: Api.report_award(award))
 		play.dish_paid.connect(_sync.add_dish)
@@ -633,6 +687,7 @@ func _connect_hud() -> void:
 	hud.recipes_pressed.connect(forms.choose_recipe)
 	hud.garden_pressed.connect(forms.open_garden)
 	hud.street_pressed.connect(_go_outside)
+	hud.friends_pressed.connect(social.open_friends)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)

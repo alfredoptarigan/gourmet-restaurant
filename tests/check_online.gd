@@ -79,6 +79,12 @@ func _check() -> void:
 	var renamed := await Api.save_data("building", Street.with_piece(Street.STARTER_BUILDING, "Body", 2060000))
 	_expect(renamed["ok"], "saving the building keeps working, got %s" % renamed)
 
+	var friends := await Api.fetch_friends()
+	var stranger := await Api.request_friend("no_such_player_here")
+	var mailbox := await Api.fetch_mail()
+	_expect(friends["ok"] and friends["data"].get("friends") == [] and stranger["status"] == 404 and mailbox["ok"],
+			"a new player has no friends or mail, got %s, %s, %s" % [friends, stranger, mailbox])
+
 	var snack := await Api.use_item(6000000)
 	_expect(snack["status"] == 409 and snack["error"] == "Not enough coins", "80 coin food cannot be bought with 2 coins, got %s" % snack)
 

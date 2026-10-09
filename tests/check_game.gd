@@ -19,6 +19,7 @@ func _ready() -> void:
 	_check_fps_setting()
 	await _check_room()
 	await _check_street()
+	await _check_visit()
 	await _check_login_screen()
 	for failure in failures:
 		printerr("FAIL: " + failure)
@@ -128,6 +129,7 @@ func _check_room() -> void:
 	_check_quiz_form(room)
 	_check_food_king(room)
 	_check_perks(room)
+	_check_friends(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -255,6 +257,20 @@ func _check_avatar(avatar: Avatar) -> void:
 	_expect(sorted == ["b", "c", "a"], "texture pieces sort by priority, later equals first, got %s" % [sorted])
 
 
+func _check_visit() -> void:
+	Api.visiting = {"id": 2.0, "username": "anna", "level": 4.0, "layout": RestaurantRoom.STARTER_LAYOUT, "jobs": [0.0, 1.0, 1.0], "plots": []}
+	var visit: RestaurantRoom = load("res://restaurant_room.tscn").instantiate()
+	add_child(visit)
+	await get_tree().process_frame
+	_expect(Api.visiting.is_empty() and visit.host.get("username") == "anna", "the visit takes the friend's restaurant")
+	_expect(visit.level == 4 and visit.play.waiters.size() == 2, "it runs at the friend's level with their staff")
+	_expect(not visit.hud.decorate_button.visible and visit.hud.sign_out_button.text == "Go home", "a visitor can only go home or tend the garden")
+	_expect(not visit.play.dish_paid.is_connected(visit._on_progress), "nothing earned on a visit is the visitor's")
+	visit.hud.garden_pressed.emit()
+	_expect(visit.hud.message_label.text == "Nothing grows in anna's garden.", "the garden button shows the friend's garden")
+	visit.queue_free()
+
+
 func _check_street() -> void:
 	_expect(Street.valid_building(Street.STARTER_BUILDING) == Street.STARTER_BUILDING, "the starting building is a valid building")
 	_expect(Street.valid_building({"items": [{"id": 1}], "banner": "x"}).is_empty() and Street.valid_building(null).is_empty(), "unknown pieces make a saved building unusable")
@@ -276,6 +292,9 @@ func _check_street() -> void:
 	panel.set_text(Street.SWAPPABLE.size(), "Chez Godot")
 	panel.finish()
 	_expect(street._message.text == "Sign in to customise your building.", "offline the building cannot be changed")
+	_expect(Street.slot_of(0) == 1 and Street.slot_of(1) == -1 and Street.slot_of(2) == 2, "friends' buildings alternate right and left of the player's")
+	street.show_neighbours([{"id": 2.0, "username": "anna", "building": Street.STARTER_BUILDING}])
+	_expect(street._neighbours.size() == 1 and street._neighbours.has(1), "a friend's building stands next door")
 	street.queue_free()
 
 
@@ -732,6 +751,38 @@ func _check_perks(room: RestaurantRoom) -> void:
 	room.perks = {"clean": {"value": 1, "until": 1.0}}
 	_expect(room.perk_value("clean") == 0, "an expired perk does nothing")
 	room.perks = {}
+
+
+func _check_friends(room: RestaurantRoom) -> void:
+	var anna_look := {"items": {}, "skin": 1, "hair": 2}
+	for group_name in RestaurantPlay.LOOK_GROUPS:
+		anna_look["items"][group_name] = RestaurantPlay.wearable(group_name)[0]["name"]
+	_expect(RoomSocial.valid_friends([{"id": 2.0, "username": "anna"}, {"id": "x"}, 3]).size() == 1, "malformed friends are dropped")
+	_expect(RoomSocial.describe_mail({"kind": "gift", "itemId": 4000034.0, "from": "anna"}) == "anna sent you Salad", "a gift reads as its ingredient")
+	_expect(RoomSocial.describe_mail({"kind": "message", "text": "Hi", "from": null}) == "Someone says: Hi", "a message from a deleted account still reads")
+	room.stop_play()
+	room.level = 4
+	room.friends = [{"id": 2.0, "username": "anna", "avatar": anna_look}]
+	room.hired = [0, 2, 0]
+	room.start_play()
+	_expect(room.look_of(1) == anna_look and room.look_of(2).is_empty(), "a hired friend wears their own look")
+	var staff_panel := room.forms.choose_staff()
+	_expect(staff_panel.get_child(0).get_child(1).get_child_count() == 10, "the staff form has a job row for each of three employees and a who row for two")
+	staff_panel.select(4, 0)
+	staff_panel.finish()
+	_expect(room.hired == [0, 2, 0], "the who rows set the hired friends, got %s" % [room.hired])
+	var friends_panel := room.social.choose_friends({"friends": room.friends, "incoming": [{"id": 3.0, "username": "budi"}]})
+	_expect(friends_panel.get_child(0).get_child(1).get_child_count() == 6, "the friends form has the add row, the request, and the friend")
+	friends_panel.queue_free()
+	var mail_panel := room.social.choose_mail([{"id": 1.0, "kind": "message", "text": "Hi", "from": "anna"}], {"question": "Q", "choices": ["A"]})
+	_expect(mail_panel.get_child(0).get_child(1).get_child_count() == 4, "the mail form lists the letter and the quiz")
+	mail_panel.queue_free()
+	room.stop_play()
+	room.level = 1
+	room.friends = []
+	room.hired = []
+	room.jobs = []
+	room.start_play()
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

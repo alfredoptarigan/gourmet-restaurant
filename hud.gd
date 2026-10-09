@@ -14,6 +14,7 @@ signal feed_pressed
 signal recipes_pressed
 signal garden_pressed
 signal street_pressed
+signal friends_pressed
 
 const MESSAGE_SECONDS := 4.0
 
@@ -31,6 +32,7 @@ const MESSAGE_SECONDS := 4.0
 @onready var recipes_button: Button = %Recipes
 @onready var garden_button: Button = %Garden
 @onready var street_button: Button = %Street
+@onready var friends_button: Button = %Friends
 
 var _message_time_left := 0.0
 var _choices: ChoicePanel
@@ -46,6 +48,7 @@ func _ready() -> void:
 	recipes_button.pressed.connect(func() -> void: recipes_pressed.emit())
 	garden_button.pressed.connect(func() -> void: garden_pressed.emit())
 	street_button.pressed.connect(func() -> void: street_pressed.emit())
+	friends_button.pressed.connect(func() -> void: friends_pressed.emit())
 	message_label.text = ""
 
 
@@ -76,6 +79,15 @@ func set_demand(demand: float, closed: bool = false) -> void:
 
 func set_signed_in(signed_in: bool) -> void:
 	sign_out_button.text = "Sign out" if signed_in else "Exit"
+
+
+## Visiting a friend: only their garden can be tended, and the last button goes home.
+func set_visiting(host_name: String) -> void:
+	for button: Button in [decorate_button, menu_button, staff_button, avatar_button, feed_button, recipes_button, street_button, friends_button]:
+		button.visible = false
+	coins_label.visible = false
+	sign_out_button.text = "Go home"
+	show_message("You are visiting %s's restaurant." % host_name)
 
 
 ## Shows a line under the bar for a few seconds.
