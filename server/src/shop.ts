@@ -7,6 +7,7 @@ import type { Sql } from './db.ts';
 import { ApiError, ok, parseBody } from './http.ts';
 import { levelFor } from './levels.ts';
 import { Award, addAward } from './awards.ts';
+import { spendCash } from './cash.ts';
 
 // GameWorld.getSellPrice: an item sells for a third of what it cost.
 const SELL_PRICE_DIVISOR = 3;
@@ -176,6 +177,7 @@ export async function assertLayoutIsOwned(sql: Sql | postgres.TransactionSql, us
 }
 
 const itemSchema = z.strictObject({ itemId: z.number().int().min(1) });
+const buySchema = z.strictObject({ itemId: z.number().int().min(1), currency: z.enum(['coins', 'cash']).default('coins') });
 
 /** The restaurant perks in effect: kind -> how strong, and how many seconds are left. */
 export async function activePerks(sql: Sql | postgres.TransactionSql, userId: string) {
@@ -205,9 +207,27 @@ export function shopRoutes(sql: Sql, catalog: Catalog): Hono<AuthEnv> {
     return ok(c, { items: Object.fromEntries(owned) });
   });
 
+  // Cash-priced items are bought with the paid currency.
   routes.post('/buy', async (c) => {
-    const { itemId } = await parseBody(c, itemSchema);
+    const { itemId, currency } = await parseBody(c, buySchema);
     const item = priced(itemId);
+    if (currency === 'cash') {
+      if (!item.cashPrice || item.consumable || item.coinsForCash) {
+        throw new ApiError(404, 'This item is not sold for cash');
+      }
+      const cashPrice = item.cashPrice;
+      const userId = c.get('userId');
+      const result = await sql.begin(async (transaction) => {
+        const cash = await spendCash(transaction, userId, cashPrice, `buy:${itemId}`);
+        const owned = await transaction<{ quantity: number }[]>`
+          insert into owned_items (user_id, item_id, quantity) values (${userId}, ${itemId}, 1)
+          on conflict (user_id, item_id) do update set quantity = owned_items.quantity + 1
+          returning quantity`;
+        const trophies = await addAward(transaction, userId, item.outdoor ? Award.BUY_OUTDOOR_ITEM : Award.BUY_INDOOR_ITEM, 1);
+        return { cash, quantity: owned[0].quantity, trophies };
+      });
+      return ok(c, result);
+    }
     if (!item.purchasable) {
       throw new ApiError(404, 'This item is not for sale');
     }

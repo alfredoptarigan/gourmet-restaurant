@@ -30,6 +30,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Coins: 0"
 
+[node name="Cash" type="Button" parent="Hud/Bar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cash: 0"
+
 [node name="Level" type="Label" parent="Hud/Bar"]
 unique_name_in_owner = true
 layout_mode = 2

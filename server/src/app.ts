@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { authRoutes } from './auth.ts';
+import { cashRoutes } from './cash.ts';
 import { awardRoutes } from './awards.ts';
 import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
@@ -15,7 +16,7 @@ import { mailRoutes, socialRoutes } from './social.ts';
 
 const DEFAULT_AUTH_RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
-const EMPTY_COOKBOOK: Cookbook = { recipes: new Map(), ingredients: new Map(), plantable: new Set() };
+const EMPTY_COOKBOOK: Cookbook = { recipes: new Map(), ingredients: new Map(), cashPrices: new Map(), plantable: new Set() };
 
 export type AppOptions = {
   sql: Sql;
@@ -57,6 +58,7 @@ export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, quiz = [], 
   app.route('/quiz', quizRoutes(sql, quiz));
   app.route('/friends', socialRoutes(sql));
   app.route('/mail', mailRoutes(sql));
+  app.route('/cash', cashRoutes(sql, catalog));
   app.route('/foodking', foodKingRoutes(sql, foodKingRewards, foodKingChance));
 
   return app;

@@ -87,9 +87,13 @@ npm test                             # needs the _test database
 
 Endpoints so far: `GET /health`, `GET /time`, `POST /auth/register`, `POST /auth/login`,
 `POST /auth/logout`, `GET /profile`, `PUT /profile`, `POST /profile/earnings`,
-`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`, `POST /shop/use`, `GET /kitchen`, `POST /kitchen/learn`, `POST /kitchen/buy-ingredient`, `GET /garden`, `POST /garden/plant`, `POST /garden/water`, `POST /garden/harvest`, `GET /awards`, `POST /awards/progress`, `GET /quiz`, `POST /quiz/answer`, `GET /foodking`, `POST /foodking/claim`, `GET /shop/perks`, `GET /friends`, `POST /friends/request`, `POST /friends/accept`, `POST /friends/remove`, `GET /friends/:id/restaurant`, `POST /friends/:id/visit`, `POST /friends/:id/water`, `GET /mail`, `POST /mail/send`, `POST /mail/:id/open`.
+`GET /shop/inventory`, `POST /shop/buy`, `POST /shop/sell`, `POST /shop/use`, `GET /kitchen`, `POST /kitchen/learn`, `POST /kitchen/buy-ingredient`, `GET /garden`, `POST /garden/plant`, `POST /garden/water`, `POST /garden/harvest`, `GET /awards`, `POST /awards/progress`, `GET /quiz`, `POST /quiz/answer`, `GET /foodking`, `POST /foodking/claim`, `GET /shop/perks`, `GET /friends`, `POST /friends/request`, `POST /friends/accept`, `POST /friends/remove`, `GET /friends/:id/restaurant`, `POST /friends/:id/visit`, `POST /friends/:id/water`, `GET /mail`, `POST /mail/send`, `POST /mail/:id/open`, `GET /cash`, `POST /cash/exchange`, `POST /cash/checkout`.
 
-Coins and cash are server-owned. A profile save can only change the `data` blob, and the
+Coins and cash are server-owned. Cash is the paid currency: it buys cash-priced furniture,
+building pieces, and ingredients, and the money bags turn it into coins. Every change to a
+player's cash is written to `cash_ledger`. Cash cannot be bought yet (`POST /cash/checkout`
+answers 501 until Stripe is set up); for testing, `npm run grant-cash -- <username> <amount>`
+gives a player cash. A profile save can only change the `data` blob, and the
 client reports how many dishes and extras (arcade plays, trash picked up) were paid for,
 never how many coins: the server pays 2 coins a dish and 1 an extra, up to the rate a full
 restaurant could serve in the time since the last report.

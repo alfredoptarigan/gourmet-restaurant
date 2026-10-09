@@ -6,6 +6,7 @@ import { parseCatalog, type Catalog } from '../src/catalog.ts';
 import { parseCookbook } from '../src/kitchen.ts';
 import { parseQuiz } from '../src/quiz.ts';
 import { parseRewards } from '../src/foodking.ts';
+import { grantCash } from '../src/cash.ts';
 import { connect, migrate } from '../src/db.ts';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/gourmet_street_test';
@@ -27,6 +28,7 @@ const RUBY_JUICE = 6000000;
 const catalog: Catalog = parseCatalog([
   { items: [{ id: '3900000', cost: '2500', unlockLevel: '10' }] },
   { items: [{ id: '6000000', cost: '80', workTime: '3600' }] },
+  { name: 'CoinsToPfCash', items: [{ id: '3700001', cost: '1000', cash: '2' }] },
   { items: [{ id: '6010005', cost: '400', duration: '24', gourmet: '2' }, { id: '6010000', cost: '50', duration: '6', clean: '1' }] },
   { name: 'Chair', items: [{ id: String(CHAIR), cost: '200', cash: '0' }] },
   {
@@ -758,6 +760,31 @@ test('friends send gifts, ingredients, and messages that are opened from the mai
   assert.equal(annaKitchen.body.data.ingredients[SALAD], 1);
   // Two starting salads, the one sent, and maybe the gift.
   assert.ok(budiKitchen.body.data.ingredients[SALAD] >= 3);
+});
+
+test('cash buys cash items, cash ingredients, and coins, and every change is in the ledger', async () => {
+  const token = await register();
+  const noCash = await call(app, 'POST', '/shop/buy', { token, body: { itemId: CASH_ONLY, currency: 'cash' } });
+  await sql.begin((transaction) => grantCash(transaction, '1', 20, 'test'));
+
+  const lamp = await call(app, 'POST', '/shop/buy', { token, body: { itemId: CASH_ONLY, currency: 'cash' } });
+  const coinItem = await call(app, 'POST', '/shop/buy', { token, body: { itemId: CHAIR, currency: 'cash' } });
+  const basil = await call(app, 'POST', '/kitchen/buy-ingredient', { token, body: { ingredientId: 4000000, currency: 'cash' } });
+  const bag = await call(app, 'POST', '/cash/exchange', { token, body: { itemId: 3700001 } });
+  const notBag = await call(app, 'POST', '/cash/exchange', { token, body: { itemId: CHAIR } });
+  const checkout = await call(app, 'POST', '/cash/checkout', { token });
+  const balance = await call(app, 'GET', '/cash', { token });
+  const ledger = await sql<{ amount: string; balance: string }[]>`select amount, balance from cash_ledger order by id`;
+
+  assert.equal(noCash.body.error, 'Not enough cash');
+  assert.deepEqual(lamp.body.data, { cash: 15, quantity: 1, trophies: [] });
+  assert.equal(coinItem.status, 404);
+  assert.deepEqual(basil.body.data, { cash: 7, quantity: 1 });
+  assert.deepEqual(bag.body.data, { cash: 5, coins: 1000 });
+  assert.equal(notBag.status, 404);
+  assert.equal(checkout.status, 501);
+  assert.equal(balance.body.data.cash, 5);
+  assert.deepEqual(ledger.map((row) => [Number(row.amount), Number(row.balance)]), [[20, 20], [-5, 15], [-8, 7], [-2, 5]]);
 });
 
 test('an item with an unlock level cannot be bought before that level', async () => {

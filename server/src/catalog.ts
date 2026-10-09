@@ -11,6 +11,10 @@ export type CatalogItem = {
   outdoor: boolean;
   /** A restaurant perk: what it does, how strongly, and for how many hours. */
   perk?: { kind: PerkKind; value: number; hours: number };
+  /** The price in cash, for an item the shop sells for cash. */
+  cashPrice?: number;
+  /** A money bag (CoinsToPfCash): the coins it gives for its cash price. */
+  coinsForCash?: number;
 };
 /**
  * Item id -> its price in coins, whether the shop sells it for coins to keep, from which
@@ -21,6 +25,7 @@ export type Catalog = ReadonlyMap<number, CatalogItem>;
 // The shape tools/extract_data.py writes: groups of items whose numbers are strings.
 const groupsSchema = z.array(
   z.object({
+    name: z.string().optional(),
     types: z.array(z.string()).optional(),
     items: z.array(
       z.object({
@@ -51,6 +56,7 @@ export function parseCatalog(groups: unknown): Catalog {
       const cost = Number(item.cost);
       // Awards cost nothing, some items are cash-only, and hidden items are never sold.
       const forCoins = cost > 0 && Number(item.cash ?? '0') === 0 && item.invisible !== true;
+      const cashPrice = item.invisible === true ? 0 : Number(item.cash ?? '0');
       const hours = Number(item.duration ?? '0');
       const kind = (['clean', 'demand', 'gourmet'] as const).find((key) => item[key] !== undefined);
       const perk = hours > 0 && kind ? { kind, value: Number(item[kind]), hours } : undefined;
@@ -62,6 +68,8 @@ export function parseCatalog(groups: unknown): Catalog {
         consumable,
         outdoor: [...(group.types ?? []), ...(item.types ?? [])].includes('outdoor'),
         ...(perk ? { perk } : {}),
+        ...(cashPrice > 0 ? { cashPrice } : {}),
+        ...(group.name === 'CoinsToPfCash' ? { coinsForCash: cost } : {}),
       });
     }
   }

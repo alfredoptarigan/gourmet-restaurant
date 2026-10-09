@@ -15,6 +15,7 @@ signal recipes_pressed
 signal garden_pressed
 signal street_pressed
 signal friends_pressed
+signal cash_pressed
 
 const MESSAGE_SECONDS := 4.0
 
@@ -33,6 +34,7 @@ const MESSAGE_SECONDS := 4.0
 @onready var garden_button: Button = %Garden
 @onready var street_button: Button = %Street
 @onready var friends_button: Button = %Friends
+@onready var cash_button: Button = %Cash
 
 var _message_time_left := 0.0
 var _choices: ChoicePanel
@@ -49,6 +51,7 @@ func _ready() -> void:
 	garden_button.pressed.connect(func() -> void: garden_pressed.emit())
 	street_button.pressed.connect(func() -> void: street_pressed.emit())
 	friends_button.pressed.connect(func() -> void: friends_pressed.emit())
+	cash_button.pressed.connect(func() -> void: cash_pressed.emit())
 	message_label.text = ""
 
 
@@ -62,6 +65,11 @@ func _process(delta: float) -> void:
 
 func set_coins(coins: int) -> void:
 	coins_label.text = "Coins: %d" % coins
+
+
+## Cash is the paid currency; the button opens what it buys.
+func set_cash(cash: int) -> void:
+	cash_button.text = "Cash: %d" % cash
 
 
 func set_gourmet_points(points: int) -> void:
@@ -83,7 +91,7 @@ func set_signed_in(signed_in: bool) -> void:
 
 ## Visiting a friend: only their garden can be tended, and the last button goes home.
 func set_visiting(host_name: String) -> void:
-	for button: Button in [decorate_button, menu_button, staff_button, avatar_button, feed_button, recipes_button, street_button, friends_button]:
+	for button: Button in [cash_button, decorate_button, menu_button, staff_button, avatar_button, feed_button, recipes_button, street_button, friends_button]:
 		button.visible = false
 	coins_label.visible = false
 	sign_out_button.text = "Go home"

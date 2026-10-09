@@ -76,8 +76,9 @@ func fetch_inventory() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/shop/inventory")
 
 
-func buy(item_id: int) -> Dictionary:
-	return await _trade("/shop/buy", item_id)
+## `currency` is "coins", or "cash" for an item priced in cash.
+func buy(item_id: int, currency: String = "coins") -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/shop/buy", {"itemId": item_id, "currency": currency})
 
 
 func sell(item_id: int) -> Dictionary:
@@ -95,14 +96,25 @@ func learn_recipe(recipe_id: int) -> Dictionary:
 	return await _trade_coins(HTTPClient.METHOD_POST, "/kitchen/learn", {"recipeId": recipe_id})
 
 
-func buy_ingredient(ingredient_id: int) -> Dictionary:
-	return await _trade_coins(HTTPClient.METHOD_POST, "/kitchen/buy-ingredient", {"ingredientId": ingredient_id})
+func buy_ingredient(ingredient_id: int, currency: String = "coins") -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/kitchen/buy-ingredient", {"ingredientId": ingredient_id, "currency": currency})
+
+
+## The player's cash, the paid currency.
+func fetch_cash() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/cash")
+
+
+## Spends cash on a money bag of coins.
+func exchange_cash(item_id: int) -> Dictionary:
+	return await _trade_coins(HTTPClient.METHOD_POST, "/cash/exchange", {"itemId": item_id})
 
 
 func _trade_coins(method: HTTPClient.Method, path: String, body: Dictionary) -> Dictionary:
 	var result := await _request(method, path, body)
-	if result["ok"] and result["data"].get("coins") is float:
-		profile["coins"] = result["data"]["coins"]
+	for currency: String in ["coins", "cash"]:
+		if result["ok"] and result["data"].get(currency) is float:
+			profile[currency] = result["data"][currency]
 	return result
 
 

@@ -8,6 +8,7 @@ import type { Sql } from './db.ts';
 import { ApiError, describeIssues, ok, parseBody } from './http.ts';
 import { levelFor, rewardBetween } from './levels.ts';
 import { Award, addAward } from './awards.ts';
+import { spendCash } from './cash.ts';
 
 // WorldRecipeMenu.RECIPE_LEVEL_NAMES runs from Simple (1) to Royal (10).
 export const MAX_RECIPE_LEVEL = 10;
@@ -38,6 +39,8 @@ export type Cookbook = {
   recipes: ReadonlyMap<number, { ingredients: ReadonlyMap<number, number>; learnable: boolean }>;
   /** Ingredient id -> its coin price, or null when the coin market does not sell it. */
   ingredients: ReadonlyMap<number, number | null>;
+  /** Ingredient id -> its price in cash. Every ingredient can be bought for cash. */
+  cashPrices: ReadonlyMap<number, number>;
   /** The ingredients that grow from a garden seed. */
   plantable: ReadonlySet<number>;
 };
@@ -69,8 +72,12 @@ export function parseCookbook(recipeGroups: unknown, ingredientGroups: unknown):
   const idByName = new Map<string, number>();
   const ingredients = new Map<number, number | null>();
   const plantable = new Set<number>();
+  const cashPrices = new Map<number, number>();
   for (const item of items(ingredientGroups, ingredientSchema, 'Ingredients')) {
     idByName.set(item.name, Number(item.id));
+    if (Number(item.cash) > 0) {
+      cashPrices.set(Number(item.id), Number(item.cash));
+    }
     if (item.plantClassName) {
       plantable.add(Number(item.id));
     }
@@ -90,7 +97,7 @@ export function parseCookbook(recipeGroups: unknown, ingredientGroups: unknown):
     // Hidden and limited-time recipes can be kept and improved, but no longer learned.
     recipes.set(Number(item.id), { ingredients: needed, learnable: !item.invisible && !item.expireDate });
   }
-  return { recipes, ingredients, plantable };
+  return { recipes, ingredients, cashPrices, plantable };
 }
 
 /** Reads recipe.json and ingredient.json from `dir`; an empty cookbook if they are missing. */
@@ -103,14 +110,17 @@ export async function loadCookbook(dir: string): Promise<Cookbook> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       console.warn(`No recipes or ingredients in ${dir}: the kitchen is closed. Run tools/extract_data.py.`);
-      return { recipes: new Map(), ingredients: new Map(), plantable: new Set() };
+      return { recipes: new Map(), ingredients: new Map(), cashPrices: new Map(), plantable: new Set() };
     }
     throw error;
   }
 }
 
 const recipeBody = z.strictObject({ recipeId: z.number().int().min(1) });
-const ingredientBody = z.strictObject({ ingredientId: z.number().int().min(1) });
+const ingredientBody = z.strictObject({
+  ingredientId: z.number().int().min(1),
+  currency: z.enum(['coins', 'cash']).default('coins'),
+});
 
 type Transaction = postgres.TransactionSql;
 
@@ -216,9 +226,25 @@ export function kitchenRoutes(sql: Sql, cookbook: Cookbook): Hono<AuthEnv> {
   // three a day, and sells the rest for cash.
   routes.post('/buy-ingredient', async (c) => {
     assertOpen();
-    const { ingredientId } = await parseBody(c, ingredientBody);
+    const { ingredientId, currency } = await parseBody(c, ingredientBody);
     if (!cookbook.ingredients.has(ingredientId)) {
       throw new ApiError(404, 'No such ingredient');
+    }
+    if (currency === 'cash') {
+      const cashPrice = cookbook.cashPrices.get(ingredientId);
+      if (!cashPrice) {
+        throw new ApiError(404, 'This ingredient is not sold for cash');
+      }
+      const buyer = c.get('userId');
+      const bought = await sql.begin(async (transaction) => {
+        const cash = await spendCash(transaction, buyer, cashPrice, `ingredient:${ingredientId}`);
+        const owned = await transaction<{ quantity: number }[]>`
+          insert into owned_ingredients (user_id, ingredient_id, quantity) values (${buyer}, ${ingredientId}, 1)
+          on conflict (user_id, ingredient_id) do update set quantity = owned_ingredients.quantity + 1
+          returning quantity`;
+        return { cash, quantity: owned[0].quantity };
+      });
+      return ok(c, bought);
     }
     const price = cookbook.ingredients.get(ingredientId);
     if (price == null) {

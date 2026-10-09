@@ -206,7 +206,9 @@ func choose_recipe() -> ChoicePanel:
 	var panel: ChoicePanel = room.hud.open_choices("Recipes", [
 		{"label": "Learn or improve", "options": ["(nothing)"] + recipes.map(describe_recipe), "selected": 0},
 		{"label": "Buy an ingredient", "options": ["(nothing)"] + market.map(func(ingredient: Dictionary) -> String:
-			return "%s, %d coins (have %d)" % [ingredient.get("name", ""), RestaurantRoom.INGREDIENT_COIN_PRICES[int(ingredient["cash"])], room.ingredients.get(int(ingredient["id"]), 0)]),
+			var coins := RestaurantRoom.ingredient_coin_price(ingredient)
+			var price := "%d coins" % coins if coins > 0 else "%s cash" % ingredient.get("cash", "?")
+			return "%s, %s (have %d)" % [ingredient.get("name", ""), price, room.ingredients.get(int(ingredient["id"]), 0)]),
 			"selected": 0},
 	])
 	panel.chosen.connect(func(selections: Array[int]) -> void: _on_recipe_chosen(selections, recipes, market))
@@ -220,12 +222,17 @@ func _on_recipe_chosen(selections: Array[int], recipes: Array, market: Array) ->
 		room.hud.show_message("Sign in to learn recipes and buy ingredients.")
 		return
 	if selections[1] > 0 and selections[1] <= market.size():
-		var bought := await Api.buy_ingredient(int(market[selections[1] - 1]["id"]))
+		var ingredient: Dictionary = market[selections[1] - 1]
+		var for_cash := RestaurantRoom.ingredient_coin_price(ingredient) == 0
+		var bought := await Api.buy_ingredient(int(ingredient["id"]), "cash" if for_cash else "coins")
 		if not bought["ok"]:
 			room.hud.show_message(bought["error"])
 			return
-		room.ingredients[int(market[selections[1] - 1]["id"])] = int(bought["data"].get("quantity", 1))
-		room.set_confirmed_coins(int(bought["data"].get("coins", 0)))
+		room.ingredients[int(ingredient["id"])] = int(bought["data"].get("quantity", 1))
+		if for_cash:
+			room.set_confirmed_cash(int(bought["data"].get("cash", 0)))
+		else:
+			room.set_confirmed_coins(int(bought["data"].get("coins", 0)))
 	if selections[0] > 0 and selections[0] <= recipes.size():
 		var recipe: Dictionary = recipes[selections[0] - 1]
 		var learned := await Api.learn_recipe(int(recipe["id"]))
@@ -350,3 +357,27 @@ func _on_food_chosen(selections: Array[int]) -> void:
 		room.set_confirmed_coins(int(helped["data"].get("coins", 0)))
 		room._take_perks({"ok": true, "data": {"perks": helped["data"].get("perks", {})}})
 		room.hud.show_message("%s is working for your restaurant." % help.get("name", ""))
+
+
+## The money bags (CoinsToPfCash) turn cash into coins.
+## ponytail: cash cannot be bought yet; the server answers 501 until Stripe is set up.
+func choose_cash() -> ChoicePanel:
+	var bags: Array = GameData.interior_items.get_items("CoinsToPfCash")
+	var panel: ChoicePanel = room.hud.open_choices("Cash: %d" % int(Api.profile.get("cash", 0)), [
+		{"label": "Exchange for coins", "options": [RestaurantRoom.NOTHING] + bags.map(func(bag: Dictionary) -> String:
+			return "%s: %s cash for %s coins" % [bag.get("name", ""), bag.get("cash", "?"), bag.get("cost", "?")]), "selected": 0},
+		{"label": "Buy cash", "options": ["Coming soon"], "selected": 0},
+	])
+	panel.chosen.connect(func(selections: Array[int]) -> void:
+		if selections[0] <= 0 or selections[0] > bags.size():
+			return
+		if not Api.is_signed_in():
+			room.hud.show_message("Sign in to use cash.")
+			return
+		var exchanged := await Api.exchange_cash(int(bags[selections[0] - 1]["id"]))
+		if not exchanged["ok"]:
+			room.hud.show_message(exchanged["error"])
+			return
+		room.set_confirmed_cash(int(exchanged["data"].get("cash", 0)))
+		room.set_confirmed_coins(int(exchanged["data"].get("coins", 0))))
+	return panel

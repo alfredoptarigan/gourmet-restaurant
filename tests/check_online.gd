@@ -85,6 +85,10 @@ func _check() -> void:
 	_expect(friends["ok"] and friends["data"].get("friends") == [] and stranger["status"] == 404 and mailbox["ok"],
 			"a new player has no friends or mail, got %s, %s, %s" % [friends, stranger, mailbox])
 
+	var cash := await Api.fetch_cash()
+	var bag := await Api.exchange_cash(3700001)
+	_expect(cash["ok"] and cash["data"].get("cash") == 0.0 and bag["error"] == "Not enough cash", "a new player has no cash to exchange, got %s" % bag)
+
 	var snack := await Api.use_item(6000000)
 	_expect(snack["status"] == 409 and snack["error"] == "Not enough coins", "80 coin food cannot be bought with 2 coins, got %s" % snack)
 

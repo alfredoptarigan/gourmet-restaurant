@@ -167,14 +167,18 @@ func buy(item_id: int) -> void:
 	if unlock_level > room.level:
 		_say("Reach level %d to buy this." % unlock_level)
 		return
+	var for_cash := is_cash_item(GameData.interior_items.get_item_by_id(item_id))
 	_busy = true
-	var result := await Api.buy(item_id)
+	var result := await Api.buy(item_id, "cash" if for_cash else "coins")
 	_busy = false
 	if not result["ok"]:
 		_say(result["error"])
 		return
 	owned[item_id] = int(result["data"].get("quantity", 1))
-	room.set_confirmed_coins(int(result["data"].get("coins", 0)))
+	if for_cash:
+		room.set_confirmed_cash(int(result["data"].get("cash", 0)))
+	else:
+		room.set_confirmed_coins(int(result["data"].get("coins", 0)))
 	_use(item_id)
 
 
@@ -346,10 +350,18 @@ func _refresh_list() -> void:
 				_add_row(item_id, "x%d" % available(item_id))
 		return
 	for config: Dictionary in GameData.interior_items.get_items(shelf):
-		# The shop sells what coins can buy: no awards, cash items, or hidden items.
-		if int(config.get("cost", 0)) > 0 and int(config.get("cash", 0)) == 0 and config.get("invisible") != true:
-			var spare := available(int(config["id"]))
-			_add_row(int(config["id"]), "%d coins" % int(config["cost"]) if spare <= 0 else "owned x%d" % spare)
+		# The shop sells for coins or cash, but no awards or hidden items.
+		var for_coins := int(config.get("cost", 0)) > 0 and int(config.get("cash", 0)) == 0
+		if config.get("invisible") == true or not (for_coins or is_cash_item(config)):
+			continue
+		var spare := available(int(config["id"]))
+		var price := "%d coins" % int(config["cost"]) if for_coins else "%d cash" % int(config["cash"])
+		_add_row(int(config["id"]), price if spare <= 0 else "owned x%d" % spare)
+
+
+## An item the shop sells for cash, the paid currency.
+static func is_cash_item(config: Dictionary) -> bool:
+	return int(config.get("cash", 0)) > 0 and config.get("invisible") != true
 
 
 func _add_row(item_id: int, note: String) -> void:

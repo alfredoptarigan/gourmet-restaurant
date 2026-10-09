@@ -130,6 +130,7 @@ func _check_room() -> void:
 	_check_food_king(room)
 	_check_perks(room)
 	_check_friends(room)
+	_check_cash(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -638,7 +639,7 @@ func _check_recipes(room: RestaurantRoom) -> void:
 	_expect(room.recipe_for("Starter") == salad, "a saved menu dish that is not learned is not served")
 	_expect(room.learnable_recipes()[0] == salad, "known recipes come first in the form")
 	_expect(room.forms.describe_recipe(salad).begins_with("Garden Salad, Standard (level 2); needs") and room.forms.describe_recipe(salad).contains("Salad 1/1"), "the form shows the level and what is held, got %s" % room.forms.describe_recipe(salad))
-	_expect(not room.market_ingredients().is_empty() and room.market_ingredients().all(func(ingredient: Dictionary) -> bool: return ingredient.get("noCoinShop") != true), "the market sells only coin-market ingredients")
+	_expect(room.market_ingredients().size() == GameData.ingredient_items.get_items("Ingredient").size(), "the market sells every ingredient")
 	room.known_recipes = {}
 	room.ingredients = {}
 	room.menu = {}
@@ -783,6 +784,21 @@ func _check_friends(room: RestaurantRoom) -> void:
 	room.hired = []
 	room.jobs = []
 	room.start_play()
+
+
+func _check_cash(room: RestaurantRoom) -> void:
+	var raisins := GameData.ingredient_items.get_item("Raisins")
+	var salad := GameData.ingredient_items.get_item("Salad")
+	_expect(RestaurantRoom.ingredient_coin_price(raisins) == 0 and RestaurantRoom.ingredient_coin_price(salad) > 0, "cash-only ingredients have no coin price")
+	_expect(room.market_ingredients().has(raisins), "the market sells cash-only ingredients too")
+	_expect(RestaurantEditor.is_cash_item({"cash": "8", "cost": "0"}) and not RestaurantEditor.is_cash_item({"cash": "0", "cost": "100"}), "cash items are told apart")
+	room.set_confirmed_cash(12)
+	_expect(room.hud.cash_button.text == "Cash: 12", "the cash balance is shown")
+	var panel := room.forms.choose_cash()
+	panel.select(0, 1)
+	panel.finish()
+	_expect(room.hud.message_label.text == "Sign in to use cash.", "offline there is no cash to spend")
+	room.set_confirmed_cash(0)
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

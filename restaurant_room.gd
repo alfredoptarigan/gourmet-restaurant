@@ -616,6 +616,8 @@ func _connect_hud() -> void:
 	hud.garden_pressed.connect(forms.open_garden)
 	hud.street_pressed.connect(_go_outside)
 	hud.friends_pressed.connect(social.open_friends)
+	hud.cash_pressed.connect(forms.choose_cash)
+	hud.set_cash(int(Api.profile.get("cash", 0)))
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -628,6 +630,12 @@ func _connect_hud() -> void:
 	_sync.leveled_up.connect(func(new_level: int, reward: int) -> void:
 		hud.show_message("Level %d! You earned %d coins." % [new_level, reward]))
 	_sync.start()
+
+
+## Spending or exchanging cash changed its balance.
+func set_confirmed_cash(cash: int) -> void:
+	Api.profile["cash"] = cash
+	hud.set_cash(cash)
 
 
 ## The shop changed the balance.
@@ -697,9 +705,17 @@ func learnable_recipes() -> Array:
 	return recipes
 
 
+## Every ingredient is for sale: for coins on the coin market, or else for cash.
 func market_ingredients() -> Array:
 	return GameData.ingredient_items.get_items(INGREDIENT_GROUP).filter(func(ingredient: Dictionary) -> bool:
-		return ingredient.get("noCoinShop") != true and INGREDIENT_COIN_PRICES.has(int(ingredient.get("cash", 0))))
+		return int(ingredient.get("cash", 0)) > 0)
+
+
+## The coin price of an ingredient on the coin market, or 0 when it is sold only for cash.
+static func ingredient_coin_price(ingredient: Dictionary) -> int:
+	if ingredient.get("noCoinShop") == true:
+		return 0
+	return INGREDIENT_COIN_PRICES.get(int(ingredient.get("cash", 0)), 0)
 
 
 ## The food that restores staff energy, as the Employee perks describe it.
