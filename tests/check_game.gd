@@ -112,6 +112,7 @@ func _check_room() -> void:
 	_check_functional_items(room)
 	_check_trash_and_cleaner(room)
 	_check_menu_and_staff_choices(room)
+	_check_drinks(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -405,6 +406,57 @@ func _check_menu_and_staff_choices(room: RestaurantRoom) -> void:
 	room.stop_play()
 	room.jobs = []
 	room.menu = {}
+	room.start_play()
+
+
+## A customer sitting at `chair` who has just ordered a drink.
+func _drink_customer(room: RestaurantRoom, chair: RoomItem) -> Customer:
+	var customer := _new_customer(room)
+	customer.take_chair(chair)
+	customer.place_on(chair.tile)
+	customer.order = room.play.create_order(customer, room.table_for_chair(chair), RestaurantPlay.DRINK_GROUP)
+	customer.state = Customer.State.WAITING
+	customer._timer = Customer.WAITING_FOR_ORDER_TIME
+	return customer
+
+
+func _check_drinks(room: RestaurantRoom) -> void:
+	const SODA_DISPENSER := 3020034
+	_expect(RestaurantPlay.courses_for(14) == ["Starter", "Main", "Dessert"], "below level 15 nobody orders a drink")
+	_expect(RestaurantPlay.courses_for(15).has("Drink"), "from level 15 customers order drinks too")
+	room.stop_play()
+	room.level = RestaurantPlay.DRINK_START_LEVEL
+	room.start_play()
+	room.play.set_process(false)
+	var thirsty := _drink_customer(room, room.item_at(Vector2i(2, 3)))
+	thirsty.tick(Customer.WAITING_FOR_ORDER_TIME + 0.1)
+	thirsty.tick(0.0)
+	_expect(thirsty.state == Customer.State.LEAVING and thirsty.emotion == Customer.Emotion.WAIT_TOO_LONG_FOR_DRINK,
+			"with no drink dispenser a drink never comes and the customer says so")
+
+	room.stop_play()
+	var dispenser := room.place_item(SODA_DISPENSER, Vector2i(3, 1), 0)
+	room.start_play()
+	var play := room.play
+	play.set_process(false)
+	play.rng.seed = 5
+	var customer := _drink_customer(room, room.item_at(Vector2i(2, 3)))
+	var drink := customer.order
+	_expect(drink.drink and drink.recipe.get("className", "").begins_with("DrinkItem"), "the order is for a drink")
+	var went_to_dispenser := false
+	var cooked := false
+	var seconds := 0.0
+	while seconds < 90.0 and customer.state != Customer.State.EATING:
+		play.tick(SIMULATION_STEP)
+		seconds += SIMULATION_STEP
+		went_to_dispenser = went_to_dispenser or dispenser.waiter != null
+		cooked = cooked or drink.kitchen != null
+	_expect(customer.state == Customer.State.EATING and went_to_dispenser and not cooked, "a waiter makes the drink at the dispenser and serves it; no chef cooks it")
+	_expect(dispenser.waiter == null, "the dispenser is free again afterwards")
+
+	room.stop_play()
+	room.remove_item(dispenser)
+	room.level = 1
 	room.start_play()
 
 

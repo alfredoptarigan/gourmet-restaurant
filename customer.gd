@@ -2,7 +2,7 @@ class_name Customer
 extends RoomActor
 ## A diner: comes in, takes a chair, orders, eats, pays, leaves. Port of Customer.as.
 ##
-## Not ported yet: drinks and the outdoor area.
+## Not ported yet: the outdoor area.
 
 ## Customer.EMOTION_*: the frame of the Emotions sprite shown over an unhappy customer.
 enum Emotion { NONE = -1, NO_SEAT, DIRTY, WAIT_TOO_LONG, DECOR, NO_TABLE, NO_CLEAN_TABLE, NO_TOILET, WAIT_TOO_LONG_FOR_DRINK }
@@ -98,7 +98,7 @@ func tick(delta: float) -> void:
 				_order()
 		State.WAITING, State.WAITING_FOR_FOOD:
 			if _timer <= 0.0:
-				leave_unhappy(Emotion.WAIT_TOO_LONG)
+				leave_unhappy(Emotion.WAIT_TOO_LONG_FOR_DRINK if order.drink else Emotion.WAIT_TOO_LONG)
 		State.EATING:
 			order.eaten = clampf(1.0 - _timer / EATING_TIME, 0.0, 1.0)
 			if _timer <= 0.0:

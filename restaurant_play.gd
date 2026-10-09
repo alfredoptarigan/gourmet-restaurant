@@ -27,14 +27,17 @@ const ARRIVAL_JITTER := 3.0
 const GOURMET_POINTS_PER_DISH := 1.0
 ## WorldRestaurant.ITEM_ROTATION_TO_ACTOR_DIRECTION_MAP: the way an item at each rotation faces.
 const ITEM_ROTATION_TO_ACTOR_DIRECTION: Array[int] = [1, 7, 5, 3]
-## Recipe.MENU_RECIPE_TYPE_NAMES without drinks, which unlock at level 15.
-const MENU_GROUPS: Array[String] = ["Starter", "Main", "Dessert"]
+## Recipe.MENU_RECIPE_TYPE_NAMES. Drinks, the last course, unlock at GameWorld.DRINK_START_LEVEL.
+const MENU_GROUPS: Array[String] = ["Starter", "Main", "Dessert", "Drink"]
+const DRINK_GROUP := "Drink"
+const DRINK_START_LEVEL := 15
 
 const CHAIR_TYPE := "chairItem"
 const KITCHEN_TYPE := "kitchen"
 const TOILET_TYPE := "toilet"
 const SINK_TYPE := "sink"
 const INTERACTIVE_TYPE := "interactive"
+const DRINK_TYPE := "drink"
 ## GameWorld.TOILET_START_LEVEL: customers start asking for a toilet at this level.
 const TOILET_START_LEVEL := 8
 ## GameWorld.COINS_PAYOUT_FUNCTIONAL_ITEMS and GOURMET_POINTS_PER_FUNCTIONAL_ITEM_PAYOUT.
@@ -76,6 +79,11 @@ var _arrival_timer := 0.0
 
 static func actor_direction_for(item_rotation: int) -> int:
 	return ITEM_ROTATION_TO_ACTOR_DIRECTION[posmod(item_rotation, ITEM_ROTATION_TO_ACTOR_DIRECTION.size())]
+
+
+## The courses customers order from at a level.
+static func courses_for(level: int) -> Array[String]:
+	return MENU_GROUPS.filter(func(course: String) -> bool: return course != DRINK_GROUP or level >= DRINK_START_LEVEL)
 
 
 ## The jobs dealt out when the player has not chosen: one chef per kitchen appliance, as long
@@ -140,6 +148,7 @@ func tick(delta: float) -> void:
 	_let_customers_in(delta)
 	_send_waiters_for_cooked_dishes()
 	_send_waiters_for_empty_plates()
+	_send_waiters_for_drinks()
 	_give_orders_to_chefs()
 	_drop_trash(delta)
 
@@ -244,10 +253,16 @@ func shuffled(things: Array) -> Array:
 	return mixed
 
 
-## WorldRestaurantPlay.createOrderForCustomer and addOrderFromCustomer.
-func create_order(customer: Customer, table: RoomItem) -> DishOrder:
-	var recipe := room.recipe_for(MENU_GROUPS[rng.randi_range(0, MENU_GROUPS.size() - 1)])
-	var order := DishOrder.new(recipe, customer, table)
+## WorldRestaurantPlay.createOrderForCustomer and addOrderFromCustomer. The course is drawn
+## at random unless one is named.
+## ponytail: the order is made up at the table. The original makes it up as the customer
+## walks in and steers them to a chair staff can serve that kind of order at; here every
+## chair is taken to be reachable.
+func create_order(customer: Customer, table: RoomItem, course: String = "") -> DishOrder:
+	if course.is_empty():
+		course = _pick(courses_for(room.level))
+	var order := DishOrder.new(room.recipe_for(course), customer, table)
+	order.drink = course == DRINK_GROUP
 	table.table_top_order = order
 	orders.append(order)
 	return order
@@ -356,8 +371,38 @@ func _send_waiters_for_empty_plates() -> void:
 
 func _give_orders_to_chefs() -> void:
 	for order in orders.duplicate():
+		if order.drink:
+			continue
 		for chef in chefs:
 			if chef.is_free():
 				orders.erase(order)
 				chef.cook(order)
 				break
+
+
+## WorldRestaurantPlay.getWaiterForDrinkOrder: the free waiter and free dispenser with the
+## shortest walk between them make each drink.
+func _send_waiters_for_drinks() -> void:
+	for order in orders.duplicate():
+		if not order.drink:
+			continue
+		var best_waiter: Waiter = null
+		var best_dispenser: RoomItem = null
+		var best_path: Array[Vector2i] = []
+		for waiter in waiters:
+			if not waiter.is_free():
+				continue
+			for dispenser in room.items_of_type(DRINK_TYPE):
+				var stand := RoomGrid.facing_tile(dispenser.tile, dispenser.rotation)
+				if dispenser.waiter != null or not room.grid.is_walkable(stand):
+					continue
+				var path := room.grid.find_path(waiter.tile, stand)
+				if path.is_empty() and waiter.tile != stand:
+					continue
+				if best_waiter == null or path.size() < best_path.size():
+					best_waiter = waiter
+					best_dispenser = dispenser
+					best_path = path
+		if best_waiter != null:
+			orders.erase(order)
+			best_waiter.get_drink(order, best_dispenser, best_path)

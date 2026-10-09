@@ -361,6 +361,7 @@ func stop_play() -> void:
 		item.table_top_order = null
 		item.ready_order = null
 		item.cleaner = null
+		item.waiter = null
 
 
 ## Signed in, coins and progress are the server's; offline, they are this session's count.
@@ -426,7 +427,7 @@ func _on_editor_finished() -> void:
 
 func choose_menu() -> ChoicePanel:
 	var rows: Array = []
-	for course in RestaurantPlay.MENU_GROUPS:
+	for course in RestaurantPlay.courses_for(level):
 		var recipes := menu_choices(course)
 		rows.append({
 			"label": course,
@@ -439,11 +440,12 @@ func choose_menu() -> ChoicePanel:
 
 
 func _on_menu_chosen(selections: Array[int]) -> void:
-	var picked := {}
-	for index in RestaurantPlay.MENU_GROUPS.size():
-		var recipes := menu_choices(RestaurantPlay.MENU_GROUPS[index])
+	var courses := RestaurantPlay.courses_for(level)
+	var picked := menu.duplicate()
+	for index in mini(courses.size(), selections.size()):
+		var recipes := menu_choices(courses[index])
 		if selections[index] >= 0 and selections[index] < recipes.size():
-			picked[RestaurantPlay.MENU_GROUPS[index]] = int(recipes[selections[index]]["id"])
+			picked[courses[index]] = int(recipes[selections[index]]["id"])
 	menu = picked
 	_save(MENU_KEY, menu)
 

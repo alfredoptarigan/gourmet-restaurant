@@ -29,6 +29,8 @@ var ready_order: DishOrder
 var usage_count := 0
 ## Broken item: the cleaner on the way to repair it.
 var cleaner: Cleaner
+## Drink dispenser: the waiter making a drink at it, or walking over to.
+var waiter: Waiter
 
 
 func has_type(type: String) -> bool:

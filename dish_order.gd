@@ -6,6 +6,8 @@ var recipe: Dictionary
 var customer: Customer
 var table: RoomItem
 var kitchen: RoomItem
+## A drink is not cooked: a waiter makes it at a drink dispenser.
+var drink := false
 ## True once the dish stands on the table.
 var served := false
 ## How much of it has been eaten, from 0 to 1.

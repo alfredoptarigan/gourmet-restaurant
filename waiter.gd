@@ -2,13 +2,15 @@ class_name Waiter
 extends RoomActor
 ## Carries cooked dishes to customers and clears empty plates. Port of Waitor.as.
 ##
-## Not ported yet: drinks. ponytail: staff never tire here, so delays are the original's
-## best case (a happy waiter); port Waitor.getDelay and setWalkSpeed with staff energy.
+## ponytail: staff never tire here, so delays are the original's best case (a happy
+## waiter); port Waitor.getDelay and setWalkSpeed with staff energy.
 
-enum State { IDLE, MOVING_TO_GET_ORDER, SERVING, MOVING_TO_GET_EMPTY_PLATE, MOVING_BACK }
+enum State { IDLE, MOVING_TO_GET_ORDER, SERVING, MOVING_TO_GET_EMPTY_PLATE, MOVING_BACK, MOVING_TO_GET_DRINK }
 
 ## Waitor.ACTION_DELAY_MIN: the pause at the stove or table before moving on.
 const ACTION_DELAY := 2.0
+## Waitor.DRINK_MAKING_DELAY_MIN: how long making a drink takes at a plain dispenser.
+const DRINK_MAKING_DELAY := 12.0
 ## Waitor.setInitialTilePosition: where a waiter may stand, relative to an unrotated kitchen.
 const HOME_OFFSETS: Array[Vector2i] = [
 	Vector2i(-1, 0), Vector2i(-1, -1), Vector2i(-1, 1), Vector2i(0, -1),
@@ -18,6 +20,8 @@ const HOME_OFFSETS: Array[Vector2i] = [
 var play: RestaurantPlay
 var kitchen: RoomItem
 var order: DishOrder
+## The dispenser this waiter is making a drink at, or walking to.
+var drink_item: RoomItem
 var state: int = State.IDLE
 
 var _home: Vector2i
@@ -46,6 +50,18 @@ func get_empty_plate(plate: DishOrder) -> void:
 	_walk_next_to(plate.table.tile, State.MOVING_TO_GET_EMPTY_PLATE)
 
 
+## Waitor.getOrderFromDrinkItem: walk to the dispenser, make the drink there, then serve it.
+func get_drink(ordered: DishOrder, dispenser: RoomItem, path: Array[Vector2i]) -> void:
+	order = ordered
+	drink_item = dispenser
+	dispenser.waiter = self
+	walk(path)
+	_timer = dispenser.operate_time(DRINK_MAKING_DELAY)
+	_at_work = false
+	state = State.MOVING_TO_GET_DRINK
+	ordered.customer.wait_for_food()
+
+
 ## The customer left: drop whatever this waiter was doing for that order.
 func drop_order(dropped: DishOrder) -> void:
 	if order == dropped:
@@ -61,6 +77,9 @@ func tick(delta: float) -> void:
 				state = State.IDLE
 		State.MOVING_TO_GET_ORDER:
 			if _worked_for(delta, order.kitchen.tile):
+				_serve_customer()
+		State.MOVING_TO_GET_DRINK:
+			if _worked_for(delta, drink_item.tile):
 				_serve_customer()
 		State.MOVING_TO_GET_EMPTY_PLATE:
 			if _worked_for(delta, order.table.tile):
@@ -123,8 +142,10 @@ func _worked_for(delta: float, target: Vector2i) -> bool:
 
 
 func _serve_customer() -> void:
-	order.kitchen.ready_order = null
-	order.kitchen = null
+	if order.kitchen != null:
+		order.kitchen.ready_order = null
+		order.kitchen = null
+	_release_drink_item()
 	var path := play.room.grid.find_path(tile, order.customer.chair.tile)
 	path.pop_back()
 	walk(path, Avatar.Animations.WAITOR_WALK)
@@ -132,8 +153,15 @@ func _serve_customer() -> void:
 	state = State.SERVING
 
 
+func _release_drink_item() -> void:
+	if drink_item != null:
+		drink_item.waiter = null
+		drink_item = null
+
+
 func _move_back() -> void:
 	order = null
+	_release_drink_item()
 	var path := play.room.grid.find_path(tile, _home)
 	if path.is_empty():
 		avatar.play(Avatar.Animations.IDLE)
