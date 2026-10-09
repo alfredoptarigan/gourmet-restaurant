@@ -8,7 +8,8 @@ AS3 loaders so ported game code sees the same values:
   ChallengeDatabase.as challenge
   TextGroup.as         lang_en, lang_fr
   NewsletterHandler.as newsletter
-model.bin is the avatar Collada model; it is inflated to assets/avatar/avatar.dae, not converted.
+model.bin is the avatar Collada model; it is inflated to assets/avatar/avatar.dae. Its skin
+bind poses, which Godot's Collada importer drops, are written to assets/avatar/skins.json.
 """
 
 import json
@@ -171,6 +172,80 @@ def convert_newsletters(root: ElementTree.Element) -> list:
     return newsletters
 
 
+def convert_bind(matrix: list, unit: float) -> dict:
+    """A Collada 4x4 (row-major, Z-up) as a Godot transform: basis columns x, y, z and origin.
+
+    Godot's Collada importer turns a Z-up point (x, y, z) into Y-up (x, z, -y) and scales
+    lengths by the file's unit, so the bind poses must make the same trip to match the
+    meshes and bones it imported.
+    """
+    def to_y_up(vector: list) -> list:
+        return [vector[0], vector[2], -vector[1]]
+
+    def tidy(vector: list) -> list:
+        return [round(value, BIND_PRECISION) + 0.0 for value in vector]
+
+    rows = [matrix[0:4], matrix[4:8], matrix[8:12]]
+    columns = [[rows[row][column] for row in range(3)] for column in range(3)]
+    return {
+        'x': tidy(to_y_up(columns[0])),
+        'y': tidy(to_y_up(columns[2])),
+        'z': tidy([-value for value in to_y_up(columns[1])]),
+        'origin': tidy([unit * value for value in to_y_up([row[3] for row in rows])]),
+    }
+
+
+def source_id(skin: ElementTree.Element, semantic: str, controller_id: str) -> str:
+    for joint_input in skin.findall('{*}joints/{*}input'):
+        if joint_input.get('semantic') == semantic:
+            return joint_input.get('source', '').lstrip('#')
+    raise DataError(f'{MODEL_SOURCE}: controller {controller_id} has no {semantic} input')
+
+
+def extract_skins(root: ElementTree.Element) -> dict:
+    """Mesh node name -> its bones with their inverse bind poses, in Godot space.
+
+    The bind shape matrix is left out on purpose: Godot's importer bakes it into the vertices.
+    """
+    up_axis = root.findtext('{*}asset/{*}up_axis', 'Y_UP').strip()
+    if up_axis != 'Z_UP':
+        raise DataError(f'{MODEL_SOURCE}: up axis is {up_axis}; only Z_UP is handled')
+    unit_element = root.find('{*}asset/{*}unit')
+    unit = float(unit_element.get('meter', DEFAULT_UNIT)) if unit_element is not None else DEFAULT_UNIT
+    bone_names = {
+        node.get('sid'): node.get('name')
+        for node in root.findall('.//{*}node')
+        if node.get('type') == 'JOINT' and node.get('sid')
+    }
+    mesh_names = {}
+    for node in root.findall('.//{*}node'):
+        instance = node.find('{*}instance_controller')
+        if instance is not None:
+            mesh_names[instance.get('url', '').lstrip('#')] = node.get('name')
+    skins = {}
+    for controller in root.findall('.//{*}controller'):
+        controller_id = controller.get('id', '')
+        skin = controller.find('{*}skin')
+        if skin is None or controller_id not in mesh_names:
+            continue
+        sources = {source.get('id'): source for source in skin.findall('{*}source')}
+        joints = sources[source_id(skin, 'JOINT', controller_id)].findtext('{*}Name_array', '').split()
+        values = [
+            float(value)
+            for value in sources[source_id(skin, 'INV_BIND_MATRIX', controller_id)].findtext('{*}float_array', '').split()
+        ]
+        if len(values) != MATRIX_SIZE * len(joints):
+            raise DataError(f'{MODEL_SOURCE}: controller {controller_id} has {len(joints)} joints but {len(values)} bind values')
+        binds = []
+        for index, joint in enumerate(joints):
+            if joint not in bone_names:
+                raise DataError(f'{MODEL_SOURCE}: controller {controller_id} names unknown joint {joint}')
+            matrix = values[index * MATRIX_SIZE:(index + 1) * MATRIX_SIZE]
+            binds.append({'bone': bone_names[joint], **convert_bind(matrix, unit)})
+        skins[mesh_names[controller_id]] = binds
+    return skins
+
+
 # (source file, output name, converter, zlib-compressed)
 SOURCES = [
     ('front.bin', 'front', convert_item_database, True),
@@ -188,6 +263,10 @@ SOURCES = [
 ]
 MODEL_SOURCE = 'model.bin'
 MODEL_OUTPUT = PROJECT_ROOT / 'assets' / 'avatar' / 'avatar.dae'
+SKINS_OUTPUT = MODEL_OUTPUT.with_name('skins.json')
+MATRIX_SIZE = 16
+DEFAULT_UNIT = 1.0
+BIND_PRECISION = 6
 
 
 def read_source(raw_dir: Path, source_name: str) -> bytes:
@@ -229,8 +308,11 @@ def extract_model(raw_dir: Path) -> str:
     if not root.tag.endswith('COLLADA'):
         raise DataError(f'{MODEL_SOURCE}: root element is {root.tag}, expected COLLADA')
     MODEL_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    skins = extract_skins(root)
     MODEL_OUTPUT.write_bytes(collada)
-    return f'{MODEL_SOURCE:16} -> {MODEL_OUTPUT.name:18} {len(collada)} bytes'
+    SKINS_OUTPUT.write_text(json.dumps(skins, indent=1) + '\n', encoding='utf-8')
+    return (f'{MODEL_SOURCE:16} -> {MODEL_OUTPUT.name:18} {len(collada)} bytes\n'
+            f'{MODEL_SOURCE:16} -> {SKINS_OUTPUT.name:18} {len(skins)} skinned meshes')
 
 
 def main(arguments: list) -> int:

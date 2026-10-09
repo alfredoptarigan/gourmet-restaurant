@@ -8,7 +8,9 @@ from extract_data import (
     convert_challenges,
     convert_item_database,
     convert_newsletters,
+    convert_bind,
     convert_texts,
+    extract_skins,
     load_xml,
     parse_xml,
 )
@@ -149,6 +151,62 @@ class ConvertNewslettersTest(unittest.TestCase):
         )
 
         self.assertEqual(convert_newsletters(root), [{'id': '20', 'date': '2010-02-09', 'text': 'Hi'}])
+
+
+COLLADA = b'''<?xml version="1.0"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema">
+ <asset><unit meter="0.5" name="half"/><up_axis>Z_UP</up_axis></asset>
+ <library_controllers>
+  <controller id="shirt01-mesh-skin"><skin source="#shirt01-mesh">
+   <bind_shape_matrix>1 0 0 9 0 1 0 9 0 0 1 9 0 0 0 1</bind_shape_matrix>
+   <source id="shirt01-mesh-skin-joints"><Name_array count="2">Bone2 Bone3</Name_array></source>
+   <source id="shirt01-mesh-skin-bind_poses"><float_array count="32">
+    1 0 0 2 0 1 0 4 0 0 1 6 0 0 0 1
+    0 -1 0 0 1 0 0 0 0 0 1 0 0 0 0 1</float_array></source>
+   <joints><input semantic="JOINT" source="#shirt01-mesh-skin-joints"/>
+    <input semantic="INV_BIND_MATRIX" source="#shirt01-mesh-skin-bind_poses"/></joints>
+  </skin></controller>
+ </library_controllers>
+ <library_visual_scenes><visual_scene>
+  <node id="shirt-node" name="shirt01"><instance_controller url="#shirt01-mesh-skin"/></node>
+  <node name="Bip01" type="JOINT"><node name="Bip01_Spine" sid="Bone2" type="JOINT">
+   <node name="Bip01_Spine1" sid="Bone3" type="JOINT"/></node></node>
+ </visual_scene></library_visual_scenes>
+</COLLADA>'''
+
+
+class ConvertBindTest(unittest.TestCase):
+    def test_translation_moves_to_y_up_and_is_scaled_by_the_unit(self):
+        bind = convert_bind([1, 0, 0, 1, 0, 1, 0, 2, 0, 0, 1, 3, 0, 0, 0, 1], unit=0.5)
+
+        self.assertEqual(bind['origin'], [0.5, 1.5, -1.0])
+        self.assertEqual((bind['x'], bind['y'], bind['z']), ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]))
+
+    def test_a_turn_around_the_z_up_axis_becomes_a_turn_around_y(self):
+        bind = convert_bind([0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], unit=1.0)
+
+        self.assertEqual(bind['x'], [0.0, 0.0, -1.0])
+        self.assertEqual(bind['y'], [0.0, 1.0, 0.0])
+        self.assertEqual(bind['z'], [1.0, 0.0, 0.0])
+
+
+class ExtractSkinsTest(unittest.TestCase):
+    def test_lists_each_mesh_with_its_bones_and_converted_binds(self):
+        skins = extract_skins(parse_xml(COLLADA, 'model.bin'))
+
+        self.assertEqual(list(skins), ['shirt01'])
+        self.assertEqual([bind['bone'] for bind in skins['shirt01']], ['Bip01_Spine', 'Bip01_Spine1'])
+        # The bind shape matrix is not folded in: Godot's importer already bakes it into the vertices.
+        self.assertEqual(skins['shirt01'][0]['origin'], [1.0, 3.0, -2.0])
+        self.assertEqual(skins['shirt01'][1]['x'], [0.0, 0.0, -1.0])
+
+    def test_names_the_controller_when_a_joint_is_unknown(self):
+        broken = COLLADA.replace(b'sid="Bone3"', b'sid="Other"')
+
+        with self.assertRaises(DataError) as raised:
+            extract_skins(parse_xml(broken, 'model.bin'))
+
+        self.assertIn('shirt01-mesh-skin', str(raised.exception))
 
 
 if __name__ == '__main__':

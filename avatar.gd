@@ -17,6 +17,7 @@ enum Animations {
 
 const MODEL_PATH := "res://assets/avatar/avatar.dae"
 const MODEL_ANIMATION := "default"
+const SKINS_PATH := "res://assets/avatar/skins.json"
 ## Avatar3D.ANIMATION_FRAME_RANGE: first and last frame of each animation on the one timeline.
 const FRAME_RANGES: Array[int] = [
 	20, 23, 0, 3, 35, 35, 36, 39, 10, 13, 30, 33, 45, 68, 72, 90, 92, 101, 103, 129, 133, 133,
@@ -139,6 +140,7 @@ func _build_view() -> bool:
 	_yaw.add_child(_model)
 	pitch.add_child(_yaw)
 	_viewport.add_child(pitch)
+	_bind_meshes()
 	_player = _model.get_node("AnimationPlayer")
 	_player.play(MODEL_ANIMATION)
 	_player.pause()
@@ -167,6 +169,35 @@ func _build_view() -> bool:
 	sprite.scale = Vector2.ONE / zoom
 	add_child(sprite)
 	return true
+
+
+## Godot's Collada importer keeps each mesh's bone weights but drops its bind poses, so the
+## meshes come in rigid and the animation moves nothing. This rebuilds every mesh's Skin
+## from the bind poses tools/extract_data.py saved.
+func _bind_meshes() -> void:
+	var skeleton := _model.find_child("Skeleton3D", true, false) as Skeleton3D
+	var skins: Variant = JSON.parse_string(FileAccess.get_file_as_string(SKINS_PATH)) if FileAccess.file_exists(SKINS_PATH) else null
+	if skeleton == null or not skins is Dictionary:
+		push_error("Avatar: %s is missing, so the model cannot animate. Run: python3 tools/extract_data.py" % SKINS_PATH)
+		return
+	for mesh: MeshInstance3D in _meshes():
+		if not skins.has(String(mesh.name)):
+			continue
+		var skin := Skin.new()
+		# The meshes index bones by their place in the skeleton, so bind i must be bone i.
+		for bone in skeleton.get_bone_count():
+			skin.add_bind(bone, Transform3D.IDENTITY)
+		for bind: Dictionary in skins[String(mesh.name)]:
+			var bone := skeleton.find_bone(bind["bone"])
+			if bone >= 0:
+				skin.set_bind_pose(bone, Transform3D(
+					Basis(_vector(bind["x"]), _vector(bind["y"]), _vector(bind["z"])), _vector(bind["origin"])))
+		mesh.skin = skin
+		mesh.skeleton = mesh.get_path_to(skeleton)
+
+
+static func _vector(values: Array) -> Vector3:
+	return Vector3(values[0], values[1], values[2])
 
 
 func _meshes() -> Array[Node]:

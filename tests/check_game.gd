@@ -4,6 +4,9 @@ extends Node
 ## It runs as a scene, not with -s, because scripts that name an autoload only compile
 ## inside the running project. The shell wrapper decides pass or fail: see its comment.
 
+const BIND_TURN_TOLERANCE := 0.02
+const BIND_OFFSET_TOLERANCE := 1.0
+
 var failures: Array[String] = []
 
 
@@ -117,6 +120,19 @@ func _check_avatar(avatar: Avatar) -> void:
 	var shown := avatar.find_child("shirt01", true, false) as Node3D
 	_expect(hidden != null and not hidden.visible, "a hat the avatar does not wear should be hidden")
 	_expect(shown != null and shown.visible, "the shirt the avatar wears should be visible")
+	# Without a skin the mesh ignores the skeleton and every animation frame looks the same.
+	var shirt := shown as MeshInstance3D
+	_expect(shirt != null and shirt.skin != null and not shirt.skeleton.is_empty(),
+			"the shirt mesh should be bound to the skeleton")
+	var skeleton := avatar.find_child("Skeleton3D", true, false) as Skeleton3D
+	if shirt != null and shirt.skin != null and skeleton != null:
+		var spine := skeleton.find_bone("Bip01_Spine")
+		var at_rest := skeleton.get_bone_global_rest(spine) * shirt.skin.get_bind_pose(spine)
+		# The model's rest pose and bind pose were exported a hair apart (under half a unit on a
+		# 170-unit character), so this allows for that. A wrong axis or scale is off by far more.
+		var turned := at_rest.basis.x.distance_to(Vector3.RIGHT) + at_rest.basis.y.distance_to(Vector3.UP)
+		_expect(turned < BIND_TURN_TOLERANCE and at_rest.origin.length() < BIND_OFFSET_TOLERANCE,
+				"a bone at rest times its bind pose should leave the mesh where it is, got %s" % at_rest)
 	avatar.set_direction(9)
 	_expect(avatar.direction == 1, "direction 9 should wrap to 1")
 	avatar.play(Avatar.Animations.WAITOR_WALK)
