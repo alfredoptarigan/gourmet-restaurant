@@ -33,6 +33,7 @@ const JOBS_KEY := "jobs"
 const AVATAR_KEY := "avatar"
 const ENERGY_KEY := "energy"
 const HIRED_KEY := "hired"
+const ARCADE_KEY := "arcade"
 const MUSIC_KEY := "music"
 ## The music the shop sells, and the type of the furniture that plays it.
 const MUSIC_GROUP := "Music"
@@ -152,6 +153,9 @@ var host: Dictionary = {}
 ## (a user id, or 0 for a stranger).
 var friends: Array = []
 var hired: Array[int] = []
+## The best score at each arcade game: game name -> score.
+var arcade_scores: Dictionary = {}
+var arcade: ArcadeWindow
 var overlays := RoomOverlays.new(self)
 var _sprites := SpriteLibrary.load_group("indoor")
 var _game_sprites := SpriteLibrary.load_group("game")
@@ -187,6 +191,11 @@ func _ready() -> void:
 		var saved_music: Variant = saved.get(MUSIC_KEY)
 		music_id = int(saved_music) if saved_music is float else 0
 		hired = ProfileRules.valid_jobs(saved.get(HIRED_KEY), false)
+		var scores: Variant = saved.get(ARCADE_KEY)
+		if scores is Dictionary:
+			for game_name: String in ArcadeWindow.GAMES:
+				if scores.get(game_name) is float:
+					arcade_scores[game_name] = int(scores[game_name])
 		var friend_list := await Api.fetch_friends()
 		if friend_list["ok"]:
 			friends = RoomSocial.valid_friends(friend_list["data"].get("friends"))
@@ -341,6 +350,9 @@ func click_tile(tile: Vector2i) -> void:
 		forms.choose_food_king_reward()
 		return
 	var item := item_at(tile)
+	if item != null and not item.is_broken() and ArcadeWindow.GAMES.has(str(item.config.get("arcadeGame", ""))):
+		open_arcade(str(item.config["arcadeGame"]))
+		return
 	for standing in items_at(tile):
 		if standing.has_type(MUSIC_PLAYER_TYPE):
 			forms.choose_music()
@@ -389,6 +401,20 @@ func seat_food_king(rewards: Array) -> void:
 		_food_king_sprite.position = RoomGrid.tile_center(food_king_tile)
 		_food_king_sprite.z_index = RoomGrid.tile_draw_order(food_king_tile) * RoomActor.DRAW_ORDER_STEP + OVER_ACTOR
 		item_layer.add_child(_food_king_sprite)
+
+
+## The player plays a working arcade machine's game themselves (ArcadeGame).
+func open_arcade(game_name: String) -> ArcadeWindow:
+	if is_instance_valid(arcade):
+		arcade.queue_free()
+	arcade = ArcadeWindow.new()
+	arcade.setup(game_name, int(arcade_scores.get(game_name, 0)))
+	hud.add_child(arcade)
+	arcade.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	arcade.new_best.connect(func(played: String, score: int) -> void:
+		arcade_scores[played] = score
+		_save(ARCADE_KEY, arcade_scores))
+	return arcade
 
 
 func set_music(item_id: int) -> void:

@@ -131,6 +131,7 @@ func _check_room() -> void:
 	_check_perks(room)
 	_check_friends(room)
 	_check_cash(room)
+	_check_arcade(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -799,6 +800,52 @@ func _check_cash(room: RestaurantRoom) -> void:
 	panel.finish()
 	_expect(room.hud.message_label.text == "Sign in to use cash.", "offline there is no cash to spend")
 	room.set_confirmed_cash(0)
+
+
+func _check_arcade(room: RestaurantRoom) -> void:
+	_expect([ArcadeSnake.score_threshold(1), ArcadeSnake.score_threshold(2), ArcadeSnake.score_threshold(3)] == [50, 150, 300], "snake levels need 50 more points each time")
+	var snake := ArcadeSnake.new()
+	add_child(snake)
+	snake.set_process(false)
+	_expect(snake.snake.size() == 4 and snake.foods.size() == 1 and snake.playing, "a snake starts four long with one food")
+	snake.foods = [snake.snake[0] + Vector2i.RIGHT]
+	snake.step()
+	_expect(snake.snake.size() == 5 and snake.score == 10, "a bite grows the snake and scores 10")
+	var scores: Array[int] = []
+	snake.game_over.connect(func(score: int) -> void: scores.append(score))
+	for move in 20:
+		snake.step()
+	_expect(not snake.playing and scores == [10], "running into the wall ends the game with its score")
+	snake.queue_free()
+
+	var cave := ArcadeCave.new()
+	add_child(cave)
+	cave.set_process(false)
+	cave.holding = false
+	cave.step()
+	_expect(cave.velocity > 0.0, "a fish sinks while the button is up")
+	cave.holding = true
+	cave.step()
+	cave.step()
+	_expect(cave.velocity < 0.0, "and rises while it is held")
+	var frames := 0
+	cave.holding = false
+	while cave.playing and frames < 500:
+		cave.step()
+		frames += 1
+	_expect(not cave.playing and cave.score() > 0, "a fish left to sink hits the cave floor")
+	cave.queue_free()
+
+	const RETRO_ARCADE := 3020043
+	var machine := room.place_item(RETRO_ARCADE, Vector2i(2, 7), 0)
+	room.click_tile(Vector2i(2, 7))
+	_expect(room.arcade != null and room.arcade.game is ArcadeSnake, "clicking a working arcade machine opens its game")
+	room.arcade.game.set_process(false)
+	room.arcade._on_game_over(30)
+	_expect(room.arcade_scores.get("Snake") == 30, "a new best score is kept")
+	room.arcade.queue_free()
+	room.remove_item(machine)
+	room.arcade_scores = {}
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

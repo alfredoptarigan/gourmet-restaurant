@@ -37,6 +37,10 @@ done
 
 output="$(GOURMET_SERVER_URL="http://localhost:$PORT" "$GODOT" --headless --path "$PROJECT_DIR" --quit-after "$MAX_FRAMES" res://tests/check_online.tscn 2>&1)"
 printf '%s\n' "$output" | grep -E 'FAIL|ERROR|check_online:'
+if printf '%s\n' "$output" | grep -q 'SCRIPT ERROR'; then
+    echo "check_online: a script error happened" >&2
+    exit 1
+fi
 if printf '%s\n' "$output" | grep -q '^check_online: OK$'; then
     exit 0
 fi

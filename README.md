@@ -26,6 +26,8 @@ you earn, and holds your furniture.
   your restaurant: choose who each employee is in **Staff**. Mail arrives in the letter box;
   friends' buildings stand beside yours on the street.
 - **Avatar** sets how you look. Your first employee is you.
+- Click a working Retro or Deep Sea arcade machine to play Snake or Cave yourself; your best
+  scores are kept.
 - Click trash on the floor to pick it up, and a broken toilet or arcade machine to repair it.
   A cleaner does both for you.
 
