@@ -78,6 +78,67 @@ export const STARTER_LAYOUT: Layout = {
   wallpaper: BLUE_WALLPAPER,
 };
 
+// The front of a restaurant on the street (StreetBuilding): pieces from front.json placed
+// relative to the middle of the building's base, and the text on its banner.
+const MAX_BUILDING_ITEMS = 60;
+export const buildingSchema = z.strictObject({
+  items: z
+    .array(
+      z.strictObject({
+        id: z.number().int().min(1),
+        // StreetBuilding.addItem keeps every piece within these bounds.
+        x: z.number().int().min(-200).max(200),
+        y: z.number().int().min(-240).max(0),
+      }),
+    )
+    .max(MAX_BUILDING_ITEMS),
+  banner: z.string().max(40),
+});
+
+export type Building = z.infer<typeof buildingSchema>;
+
+// WorldCustomiseBuilding.DEFAULT_BUILDING_ITEMS: the building every new player starts with.
+export const STARTER_BUILDING: Building = {
+  items: [
+    { id: 2060000, x: 0, y: 0 },
+    { id: 2020001, x: 0, y: 0 },
+    { id: 2010012, x: 0, y: 0 },
+    { id: 2070000, x: 0, y: -100 },
+    { id: 2000014, x: 60, y: -23 },
+    { id: 2000014, x: -60, y: -23 },
+    { id: 2050008, x: 0, y: 0 },
+    { id: 2040002, x: 70, y: 0 },
+    { id: 2040002, x: -70, y: 0 },
+    { id: 2040017, x: 30, y: 0 },
+    { id: 2040011, x: 120, y: 0 },
+  ],
+  banner: 'My Restaurant',
+};
+
+function countBuilding(building: Building): Map<number, number> {
+  const used = new Map<number, number>();
+  for (const { id } of building.items) {
+    used.set(id, (used.get(id) ?? 0) + 1);
+  }
+  return used;
+}
+
+/** Gives a player the pieces of the starting building. */
+export async function grantStarterBuilding(transaction: postgres.TransactionSql, userId: string): Promise<void> {
+  const rows = [...countBuilding(STARTER_BUILDING)].map(([itemId, quantity]) => ({ user_id: userId, item_id: itemId, quantity }));
+  await transaction`insert into owned_items ${transaction(rows)} on conflict (user_id, item_id) do nothing`;
+}
+
+/** Throws unless the player owns every piece the building uses. */
+export async function assertBuildingIsOwned(sql: Sql | postgres.TransactionSql, userId: string, building: Building): Promise<void> {
+  const owned = await ownedQuantities(sql, userId);
+  for (const [itemId, used] of countBuilding(building)) {
+    if (used > (owned.get(itemId) ?? 0)) {
+      throw new ApiError(409, `The building uses item ${itemId} more often than you own it`);
+    }
+  }
+}
+
 /** How many of each item a layout uses: its floor and wallpaper once each, and every painted tile. */
 export function countPlaced(layout: Layout): Map<number, number> {
   const placed = new Map<number, number>();

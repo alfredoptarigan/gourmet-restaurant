@@ -18,6 +18,7 @@ func _ready() -> void:
 	_check_data()
 	_check_fps_setting()
 	await _check_room()
+	await _check_street()
 	await _check_login_screen()
 	for failure in failures:
 		printerr("FAIL: " + failure)
@@ -252,6 +253,30 @@ func _check_avatar(avatar: Avatar) -> void:
 	var order: Array[Dictionary] = [{"priority": 2, "id": "a"}, {"priority": 0, "id": "b"}, {"priority": 2, "id": "c"}]
 	var sorted := Avatar.sort_by_priority(order).map(func(entry: Dictionary) -> String: return entry["id"])
 	_expect(sorted == ["b", "c", "a"], "texture pieces sort by priority, later equals first, got %s" % [sorted])
+
+
+func _check_street() -> void:
+	_expect(Street.valid_building(Street.STARTER_BUILDING) == Street.STARTER_BUILDING, "the starting building is a valid building")
+	_expect(Street.valid_building({"items": [{"id": 1}], "banner": "x"}).is_empty() and Street.valid_building(null).is_empty(), "unknown pieces make a saved building unusable")
+	var red_roof := Street.with_piece(Street.STARTER_BUILDING, "Roof", 2020002)
+	_expect(BuildingView.pieces_of(red_roof, "Roof") == [{"id": 2020002, "x": 0, "y": 0}] and red_roof["items"].size() == 11, "swapping the roof keeps everything else")
+	_expect(BuildingView.pieces_of(Street.STARTER_BUILDING, "Roof")[0]["id"] == 2020001, "and leaves the original untouched")
+	var street: Street = load("res://street.tscn").instantiate()
+	add_child(street)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var view: BuildingView = street._view
+	_expect(view.get_child_count() >= 10, "the starting building draws its pieces, got %d" % view.get_child_count())
+	var labels := view.get_children().filter(func(child: Node) -> bool: return child is Label)
+	_expect(labels.size() == 1 and labels[0].text == "My Restaurant", "the banner shows the restaurant's name")
+	var body: Sprite2D = view.get_child(0)
+	_expect(body.clip_children == CanvasItem.CLIP_CHILDREN_AND_DRAW and body.get_child_count() == 1, "the wall tiles fill the body")
+	var panel := street.customise()
+	_expect(panel.text_of(Street.SWAPPABLE.size()) == "My Restaurant", "the customise form starts with the current name")
+	panel.set_text(Street.SWAPPABLE.size(), "Chez Godot")
+	panel.finish()
+	_expect(street._message.text == "Sign in to customise your building.", "offline the building cannot be changed")
+	street.queue_free()
 
 
 func _check_login_screen() -> void:

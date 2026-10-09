@@ -707,6 +707,32 @@ test('every painted floor tile uses one owned floor item', async () => {
   assert.equal(unowned.status, 409);
 });
 
+test('a new player has the starting building and owns its pieces', async () => {
+  const token = await register();
+
+  const profile = await call(app, 'GET', '/profile', { token });
+  const building = profile.body.data.data.building;
+  const owned = await inventory(token);
+  const moved = await call(app, 'PUT', '/profile', {
+    token,
+    body: { version: 0, data: { building: { ...building, banner: 'Chez Anna', items: building.items.slice(1) } } },
+  });
+  const greedy = await call(app, 'PUT', '/profile', {
+    token,
+    body: { version: 1, data: { building: { ...building, items: [...building.items, { id: 2060000, x: 0, y: 0 }] } } },
+  });
+  const outside = await call(app, 'PUT', '/profile', {
+    token,
+    body: { version: 1, data: { building: { ...building, items: [{ id: 2060000, x: 500, y: 0 }] } } },
+  });
+
+  assert.equal(building.items.length, 11);
+  assert.equal(owned['2000014'], 2);
+  assert.equal(moved.status, 200);
+  assert.equal(greedy.status, 409);
+  assert.equal(outside.status, 400);
+});
+
 test('a new player owns the furniture of the starting restaurant', async () => {
   const token = await register();
 

@@ -6,7 +6,17 @@ import { requireAuth, type AuthEnv } from './auth.ts';
 import type { Sql } from './db.ts';
 import { ApiError, describeIssues, fail, ok, parseBody } from './http.ts';
 import { levelFor, rewardBetween } from './levels.ts';
-import { activePerks, assertLayoutIsOwned, grantStarterItems, layoutSchema, STARTER_LAYOUT } from './shop.ts';
+import {
+  activePerks,
+  assertBuildingIsOwned,
+  assertLayoutIsOwned,
+  buildingSchema,
+  grantStarterBuilding,
+  grantStarterItems,
+  layoutSchema,
+  STARTER_BUILDING,
+  STARTER_LAYOUT,
+} from './shop.ts';
 
 const MAX_SAVE_BYTES = 256 * 1024;
 
@@ -73,14 +83,21 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
     if (!row) {
       throw new ApiError(404, 'Profile not found');
     }
-    if (row.data.layout !== undefined) {
+    if (row.data.layout !== undefined && row.data.building !== undefined) {
       return ok(c, toProfile(row));
     }
-    // An account made before the shop existed has no layout and owns nothing. Give it the
-    // starting restaurant now, keeping whatever else its data holds.
-    const data = { ...row.data, layout: STARTER_LAYOUT };
+    // An account made before the shop or the street existed has no layout or no building,
+    // and owns nothing for it. Give it the starting one now, keeping the rest of its data.
+    const data = { ...row.data };
     await sql.begin(async (transaction) => {
-      await grantStarterItems(transaction, c.get('userId'));
+      if (data.layout === undefined) {
+        data.layout = STARTER_LAYOUT;
+        await grantStarterItems(transaction, c.get('userId'));
+      }
+      if (data.building === undefined) {
+        data.building = STARTER_BUILDING;
+        await grantStarterBuilding(transaction, c.get('userId'));
+      }
       await transaction`
         update profiles set data = ${transaction.json(data as postgres.JSONValue)}
         where user_id = ${c.get('userId')}`;
@@ -101,6 +118,13 @@ export function profileRoutes(sql: Sql): Hono<AuthEnv> {
           throw new ApiError(400, describeIssues(layout.error));
         }
         await assertLayoutIsOwned(sql, c.get('userId'), layout.data);
+      }
+      if (data.building !== undefined) {
+        const building = buildingSchema.safeParse(data.building);
+        if (!building.success) {
+          throw new ApiError(400, describeIssues(building.error));
+        }
+        await assertBuildingIsOwned(sql, c.get('userId'), building.data);
       }
       // A save that says nothing about the layout keeps the one already stored: leaving it
       // out must not quietly reset the restaurant.

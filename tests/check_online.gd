@@ -74,6 +74,11 @@ func _check() -> void:
 	var perks := await Api.fetch_perks()
 	_expect(perks["ok"] and perks["data"].get("perks") == {}, "a new player has no perks, got %s" % perks)
 
+	var building: Variant = Api.profile.get("data", {}).get("building")
+	_expect(Street.valid_building(building) == Street.STARTER_BUILDING, "a new player has the starting building, got %s" % [building])
+	var renamed := await Api.save_data("building", Street.with_piece(Street.STARTER_BUILDING, "Body", 2060000))
+	_expect(renamed["ok"], "saving the building keeps working, got %s" % renamed)
+
 	var snack := await Api.use_item(6000000)
 	_expect(snack["status"] == 409 and snack["error"] == "Not enough coins", "80 coin food cannot be bought with 2 coins, got %s" % snack)
 
@@ -81,8 +86,9 @@ func _check() -> void:
 		var moved: Dictionary = starting.duplicate(true)
 		moved["items"][4]["x"] = 4
 		moved["items"][4]["y"] = 4
+		var version_before: float = Api.profile.get("version", 0.0)
 		var saved := await Api.save_layout(moved)
-		_expect(saved["ok"] and Api.profile.get("version") == 1.0, "moving a chair should save, got %s" % saved)
+		_expect(saved["ok"] and Api.profile.get("version") == version_before + 1.0, "moving a chair should save, got %s" % saved)
 		var greedy: Dictionary = moved.duplicate(true)
 		greedy["items"].append({"id": 3040001, "x": 5, "y": 2, "rotation": 0})
 		var refused := await Api.save_layout(greedy)

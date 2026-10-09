@@ -8,6 +8,7 @@ extends Node2D
 ## (WorldRestaurant.addDefaultWalls, fillBaseArea).
 
 const LOGIN_SCENE := "res://login.tscn"
+const STREET_SCENE := "res://street.tscn"
 const EDITOR_MUSIC := "MusicEditor"
 const LEVEL_UP_SOUND := "SfxLevelUp"
 const WALL_ITEM := "White Walls"
@@ -631,6 +632,7 @@ func _connect_hud() -> void:
 	hud.feed_pressed.connect(forms.choose_food)
 	hud.recipes_pressed.connect(forms.choose_recipe)
 	hud.garden_pressed.connect(forms.open_garden)
+	hud.street_pressed.connect(_go_outside)
 	if not Api.is_signed_in():
 		hud.set_coins(0)
 		_on_progress(0)
@@ -761,6 +763,12 @@ func _save(key: String, value: Variant) -> void:
 	var result := await Api.save_data(key, value)
 	if not result["ok"]:
 		hud.show_message("Could not save: %s" % result["error"])
+
+
+func _go_outside() -> void:
+	if Api.is_signed_in():
+		await _save_energy()
+	get_tree().change_scene_to_file(STREET_SCENE)
 
 
 func _sign_out() -> void:

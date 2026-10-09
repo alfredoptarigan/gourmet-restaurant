@@ -19,6 +19,8 @@ you earn, and holds your furniture.
 - **Perks** buys food that restores an employee's energy, and help for the whole restaurant
   for some hours: cleaning (no trash), adverts (a popularity floor), or a consultant
   (double gourmet points).
+- **Street** goes outside to your building; **Customise** there changes its body, roof,
+  walls, door, and banner, and the name on it.
 - **Avatar** sets how you look. Your first employee is you.
 - Click trash on the floor to pick it up, and a broken toilet or arcade machine to repair it.
   A cleaner does both for you.
@@ -64,6 +66,7 @@ tests/check_game.sh                  # headless Godot check (needs the generated
                                      # after adding a script with a class_name, run once:
                                      #   godot --headless --path . --import
 tests/check_online.sh                # the game's client against a real server (needs PostgreSQL)
+godot --path . res://tests/screenshot.tscn -- res://street.tscn out.png   # picture of a scene
 ```
 
 ## Backend

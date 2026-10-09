@@ -5,7 +5,7 @@ import postgres from 'postgres';
 import { z } from 'zod';
 import type { Sql } from './db.ts';
 import { ApiError, ok, parseBody } from './http.ts';
-import { grantStarterItems, STARTER_LAYOUT } from './shop.ts';
+import { grantStarterBuilding, grantStarterItems, STARTER_BUILDING, STARTER_LAYOUT } from './shop.ts';
 
 const PASSWORD_SCHEME = 'scrypt';
 const SALT_BYTES = 16;
@@ -94,8 +94,9 @@ export function authRoutes(sql: Sql): Hono<AuthEnv> {
           insert into users (username, password_hash) values (${username}, ${passwordHash}) returning id`;
         await transaction`
           insert into profiles (user_id, data)
-          values (${users[0].id}, ${transaction.json({ layout: STARTER_LAYOUT })})`;
+          values (${users[0].id}, ${transaction.json({ layout: STARTER_LAYOUT, building: STARTER_BUILDING })})`;
         await grantStarterItems(transaction, users[0].id);
+        await grantStarterBuilding(transaction, users[0].id);
         return users[0].id;
       })
       .catch((error: unknown) => {

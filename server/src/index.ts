@@ -18,7 +18,12 @@ for (const name of await migrate(sql)) {
 }
 
 // Perks (food for the staff) are extracted next to the furniture catalog.
-const catalog = await loadCatalog(config.itemCatalogPath, join(dirname(config.itemCatalogPath), 'perk.json'));
+// Perks (food for the staff) and building fronts are extracted next to the furniture catalog.
+const catalog = await loadCatalog(
+  config.itemCatalogPath,
+  join(dirname(config.itemCatalogPath), 'perk.json'),
+  join(dirname(config.itemCatalogPath), 'front.json'),
+);
 console.log(`Item catalog: ${catalog.size} items`);
 const cookbook = await loadCookbook(dirname(config.itemCatalogPath));
 const quiz = await loadQuiz(dirname(config.itemCatalogPath));
