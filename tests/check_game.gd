@@ -106,6 +106,7 @@ func _check_room() -> void:
 	_expect(Sounds.has_sound("MusicRestaurant") and not Sounds.has_sound("NoSuchSound"), "sounds are found by class name")
 	Sounds.play("NoSuchSound")
 	_check_staffing(room)
+	_check_waiting_for_a_table(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -256,6 +257,46 @@ func _check_staffing(room: RestaurantRoom) -> void:
 	room.level = 1
 	room.start_play()
 	_expect(room.play.chefs.size() == 1 and room.play.waiters.size() == 1, "level 1 has one chef and one waiter")
+
+
+func _seated_customer(room: RestaurantRoom, chair: RoomItem) -> Customer:
+	var customer := Customer.new()
+	room.play._add_actor(customer, [])
+	room.play.customers.append(customer)
+	customer.enter(room.play, Vector2i(0, 4))
+	customer.take_chair(chair)
+	customer.place_on(chair.tile)
+	customer.tick(0.0)
+	customer.tick(Customer.DECIDING_TIME + 0.1)
+	customer.tick(0.0)
+	return customer
+
+
+func _check_waiting_for_a_table(room: RestaurantRoom) -> void:
+	const CHAIR := 3040001
+	var play := room.play
+	play.set_process(false)
+	var table := room.item_at(Vector2i(3, 3))
+	table.table_top_order = DishOrder.new({}, null, table)
+	var waiting := _seated_customer(room, room.item_at(Vector2i(2, 3)))
+	_expect(waiting.state == Customer.State.NO_CLEAN_TABLE and waiting.emotion == Customer.Emotion.NO_CLEAN_TABLE,
+			"a customer at a table still in use should wait for it, got state %d" % waiting.state)
+	table.table_top_order = null
+	waiting.tick(0.1)
+	_expect(waiting.state == Customer.State.WAITING and waiting.order != null and waiting.emotion == Customer.Emotion.NONE,
+			"once the table is cleared the waiting customer should order")
+	# A chair facing the stove has no table: its customer queues for a chair that has one.
+	var lone_chair := room.place_item(CHAIR, Vector2i(5, 3), 0)
+	var queued := _seated_customer(room, lone_chair)
+	_expect(queued.state == Customer.State.NO_TABLE and play.waiting_chair_queue == [queued],
+			"a customer on a chair with no table should join the queue, got state %d" % queued.state)
+	queued.tick(0.1)
+	_expect(queued.state == Customer.State.WALKING_TO_CHAIR and play.waiting_chair_queue.is_empty() and lone_chair.occupant == null,
+			"the first in the queue should move to a chair with a table")
+	_expect(queued.chair != null and room.table_for_chair(queued.chair) != null, "the new chair should face a table")
+	room.stop_play()
+	room.remove_item(lone_chair)
+	room.start_play()
 
 
 func _check_editor(room: RestaurantRoom) -> void:

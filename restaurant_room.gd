@@ -421,14 +421,19 @@ func _sync_chair_overlays() -> void:
 			_chair_overlays.erase(chair)
 
 
-## Shows why an unhappy customer is leaving, as the original's bubble over their head.
+## Shows what a customer is unhappy about, as the original's bubble over their head.
 func _sync_emotions() -> void:
 	for customer in play.customers:
-		if customer.emotion == Customer.Emotion.NONE or customer.has_node(EMOTION_NODE):
+		var bubble: Sprite2D = customer.get_node_or_null(EMOTION_NODE)
+		if customer.emotion == Customer.Emotion.NONE:
+			if bubble != null:
+				bubble.free()
 			continue
-		var bubble := _game_sprites.make_sprite(EMOTION_SPRITE, customer.emotion)
 		if bubble == null:
-			continue
-		bubble.name = EMOTION_NODE
-		bubble.position = EMOTION_OFFSET
-		customer.add_child(bubble)
+			bubble = _game_sprites.make_sprite(EMOTION_SPRITE)
+			if bubble == null:
+				continue
+			bubble.name = EMOTION_NODE
+			bubble.position = EMOTION_OFFSET
+			customer.add_child(bubble)
+		bubble.frame = customer.emotion

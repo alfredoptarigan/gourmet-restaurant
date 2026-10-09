@@ -47,6 +47,8 @@ var waiters: Array[Waiter] = []
 var orders: Array[DishOrder] = []
 var completed_orders: Array[DishOrder] = []
 var empty_plates: Array[DishOrder] = []
+## Customers on a chair with no table, waiting in turn for a chair that has one.
+var waiting_chair_queue: Array[Customer] = []
 
 var _door_tile: Vector2i
 var _has_door := false
@@ -107,18 +109,34 @@ func tick(delta: float) -> void:
 	_give_orders_to_chefs()
 
 
-func free_chairs_in_random_order() -> Array[RoomItem]:
+## WorldRestaurantPlay.getEmptyChairs: chairs nobody sits on or walks to, optionally only
+## those facing a table, or a table with nothing on it.
+func empty_chairs(with_table: bool, with_free_table: bool) -> Array[RoomItem]:
 	var chairs: Array[RoomItem] = []
 	for chair in room.items_of_type(CHAIR_TYPE):
-		if chair.occupant == null:
-			chairs.append(chair)
-	# Shuffled with this object's generator so a seeded run is repeatable.
-	for index in range(chairs.size() - 1, 0, -1):
-		var other := rng.randi_range(0, index)
-		var swapped := chairs[index]
-		chairs[index] = chairs[other]
-		chairs[other] = swapped
+		if chair.occupant != null:
+			continue
+		var table := room.table_for_chair(chair)
+		if with_table and (table == null or (with_free_table and not is_table_free(table))):
+			continue
+		chairs.append(chair)
 	return chairs
+
+
+## WorldRestaurant.isTableFree.
+func is_table_free(table: RoomItem) -> bool:
+	return table.table_top_order == null
+
+
+## A shuffled copy, drawn with this object's generator so a seeded run is repeatable.
+func shuffled(things: Array) -> Array:
+	var mixed := things.duplicate()
+	for index in range(mixed.size() - 1, 0, -1):
+		var other := rng.randi_range(0, index)
+		var swapped: Variant = mixed[index]
+		mixed[index] = mixed[other]
+		mixed[other] = swapped
+	return mixed
 
 
 ## WorldRestaurantPlay.createOrderForCustomer and addOrderFromCustomer.
