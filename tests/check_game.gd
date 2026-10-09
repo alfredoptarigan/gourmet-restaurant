@@ -125,6 +125,7 @@ func _check_room() -> void:
 	_check_music(room)
 	_check_awards(room)
 	_check_quiz_form(room)
+	_check_food_king(room)
 	await _check_editor(room)
 	room.queue_free()
 
@@ -676,6 +677,18 @@ func _check_quiz_form(room: RestaurantRoom) -> void:
 	panel.queue_free()
 	room.click_tile(Vector2i(1, 7))
 	_expect(room.hud.message_label.text == "Sign in to get mail.", "the letter box holds the mail, which needs an account")
+
+
+func _check_food_king(room: RestaurantRoom) -> void:
+	_expect(RestaurantRoom.describe_reward({"kind": "ingredient", "id": 4000010.0}) == "Carrot (ingredient)", "a reward reads as its name and kind")
+	room.seat_food_king([{"kind": "recipe", "id": 5000019.0}, {"kind": "item", "id": 3020198.0}])
+	_expect(room.grid.is_walkable(room.food_king_tile) and room._food_king_sprite != null, "Greg sits on a free floor tile")
+	room.click_tile(room.food_king_tile)
+	var panel: ChoicePanel = room.hud._choices
+	_expect(panel != null and panel.get_child(0).get_child(0).text.begins_with("You found the Food King"), "clicking Greg offers his rewards")
+	panel.queue_free()
+	room._food_king_sprite.free()
+	room.food_king_tile = Vector2i(-1, -1)
 
 
 func _new_customer(room: RestaurantRoom) -> Customer:

@@ -5,6 +5,7 @@ import { createApp } from '../src/app.ts';
 import { parseCatalog, type Catalog } from '../src/catalog.ts';
 import { parseCookbook } from '../src/kitchen.ts';
 import { parseQuiz } from '../src/quiz.ts';
+import { parseRewards } from '../src/foodking.ts';
 import { connect, migrate } from '../src/db.ts';
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/gourmet_street_test';
@@ -619,6 +620,32 @@ test('a wrong answer pays nothing and still uses up the day', async () => {
   assert.deepEqual(wrong.body.data, { correct: false, correctChoice: 1, rewardIngredientId: null });
   assert.equal(retry.status, 409);
   assert.equal(nonsense.status, 400);
+});
+
+test('when the Food King visits, one of his three rewards can be claimed once', async () => {
+  const rewards = parseRewards([
+    { kind: 'ingredient', groups: [{ items: [{ id: String(SALAD), foodKingFeed: true }, { id: '4000040' }] }] },
+    { kind: 'recipe', groups: [{ items: [{ id: '5000019', foodKingFeed: true }] }] },
+    { kind: 'item', groups: [{ items: [{ id: String(FANCY_LAMP), foodKingFeed: true }] }] },
+  ]);
+  const always = createApp({ sql, catalog, cookbook, foodKingRewards: rewards, foodKingChance: 1, authRateLimit: NO_RATE_LIMIT });
+  const never = createApp({ sql, catalog, cookbook, foodKingRewards: rewards, foodKingChance: 1_000_000_007, authRateLimit: NO_RATE_LIMIT });
+  const token = await register();
+
+  const visit = await call(always, 'GET', '/foodking', { token });
+  const missed = await call(never, 'POST', '/foodking/claim', { token, body: { choice: 0 } });
+  const claims = [];
+  for (const choice of [0, 1, 2]) {
+    claims.push(await call(always, 'POST', '/foodking/claim', { token, body: { choice } }));
+  }
+
+  assert.equal(rewards.length, 3);
+  assert.equal(visit.body.data.visiting, true);
+  assert.equal(visit.body.data.rewards.length, 3);
+  assert.equal(missed.status, 409);
+  assert.equal(claims[0].status, 200);
+  assert.deepEqual(claims[0].body.data.reward, visit.body.data.rewards[0]);
+  assert.deepEqual(claims.slice(1).map((claim) => claim.status), [409, 409]);
 });
 
 test('an item with an unlock level cannot be bought before that level', async () => {

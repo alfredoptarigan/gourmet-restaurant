@@ -37,6 +37,8 @@ const MUSIC_GROUP := "Music"
 const MUSIC_PLAYER_TYPE := "musicPlayer"
 const ACHIEVEMENT_TYPE := "achievementItem"
 const MAIL_TYPE := "mailItem"
+## FoodkingActor.RESOURCE_NAMES[STATE_PICNIC]: Greg sitting on his picnic blanket.
+const FOOD_KING_SPRITE := "GregPicnic"
 ## The perk group of the food that restores staff energy.
 const STAFF_FOOD_GROUP := "Employee"
 ## WorldRecipeMenu.RECIPE_LEVEL_NAMES, from level 1.
@@ -106,6 +108,10 @@ var outside_size := Vector2i.ZERO
 var music_id := 0
 ## Music the player has bought: item id -> true.
 var owned_music: Dictionary = {}
+## Where the Food King sits today, and the rewards he offers; no tile while he is away.
+var food_king_tile := Vector2i(-1, -1)
+var food_king_rewards: Array = []
+var _food_king_sprite: Sprite2D
 ## Floor tiles painted over the base floor: tile -> floor item id.
 var floor_tiles: Dictionary = {}
 ## The job the player gave each employee (RestaurantPlay.Job); see staff_jobs().
@@ -169,6 +175,8 @@ func _ready() -> void:
 	build(_saved_layout())
 	_connect_hud()
 	start_play()
+	if Api.is_signed_in():
+		_look_for_food_king()
 
 
 ## The layout the server holds for this player, or the starting one when playing offline.
@@ -349,6 +357,9 @@ func click_tile(tile: Vector2i) -> void:
 	if trash.has(tile):
 		play.remove_trash(tile)
 		return
+	if tile == food_king_tile:
+		choose_food_king_reward()
+		return
 	var item := item_at(tile)
 	for standing in items_at(tile):
 		if standing.has_type(MUSIC_PLAYER_TYPE):
@@ -448,6 +459,60 @@ func _on_quiz_answered(choice: int, quiz: Dictionary) -> void:
 		var choices: Array = quiz.get("choices", [])
 		var correct := int(result["data"].get("correctChoice", 0))
 		hud.show_message("Not quite: it was %s." % (choices[correct] if correct < choices.size() else "another answer"))
+
+
+## FoodKing.addToRestaurant: on the days the server says he visits, Greg sits somewhere in
+## the restaurant until the player finds him.
+## ponytail: he sits still on his blanket; the original sometimes walks him in instead.
+func _look_for_food_king() -> void:
+	var result := await Api.fetch_food_king()
+	if result["ok"] and result["data"].get("visiting") == true and result["data"].get("claimed") != true:
+		seat_food_king(result["data"].get("rewards", []))
+
+
+func seat_food_king(rewards: Array) -> void:
+	var spots := play.free_floor_tiles() if play != null else []
+	if spots.is_empty() or rewards.is_empty():
+		return
+	food_king_rewards = rewards
+	food_king_tile = spots[randi() % spots.size()]
+	_food_king_sprite = _sprites.make_sprite(FOOD_KING_SPRITE)
+	if _food_king_sprite != null:
+		_food_king_sprite.position = RoomGrid.tile_center(food_king_tile)
+		_food_king_sprite.z_index = RoomGrid.tile_draw_order(food_king_tile) * RoomActor.DRAW_ORDER_STEP + OVER_ACTOR
+		item_layer.add_child(_food_king_sprite)
+
+
+static func describe_reward(reward: Dictionary) -> String:
+	var database: ItemDatabase = {"ingredient": GameData.ingredient_items, "recipe": GameData.recipe_items}.get(reward.get("kind"), GameData.interior_items)
+	return "%s (%s)" % [database.get_item_by_id(int(reward.get("id", 0))).get("name", "?"), reward.get("kind", "item")]
+
+
+## FoodKingPopUp: finding Greg lets the player pick one of his rewards.
+func choose_food_king_reward() -> ChoicePanel:
+	var panel: ChoicePanel = hud.open_choices("You found the Food King! Pick a reward", [
+		{"label": "Reward", "options": food_king_rewards.map(describe_reward), "selected": 0}])
+	panel.chosen.connect(func(selections: Array[int]) -> void: _claim_food_king(selections[0]))
+	return panel
+
+
+func _claim_food_king(choice: int) -> void:
+	var result := await Api.claim_food_king(choice)
+	if not result["ok"]:
+		hud.show_message(result["error"])
+		return
+	var reward: Dictionary = result["data"].get("reward", {})
+	match reward.get("kind"):
+		"ingredient":
+			ingredients[int(reward["id"])] = ingredients.get(int(reward["id"]), 0) + 1
+		"recipe":
+			if not known_recipes.has(int(reward["id"])):
+				known_recipes[int(reward["id"])] = 1
+	hud.show_message("The Food King gave you %s." % describe_reward(reward))
+	food_king_tile = Vector2i(-1, -1)
+	if _food_king_sprite != null:
+		_food_king_sprite.queue_free()
+		_food_king_sprite = null
 
 
 func set_music(item_id: int) -> void:

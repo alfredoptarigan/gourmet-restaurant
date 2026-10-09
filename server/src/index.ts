@@ -5,6 +5,7 @@ import { loadCatalog } from './catalog.ts';
 import { loadConfig } from './config.ts';
 import { loadCookbook } from './kitchen.ts';
 import { loadQuiz } from './quiz.ts';
+import { loadRewards } from './foodking.ts';
 import { connect, migrate } from './db.ts';
 
 const config = loadConfig();
@@ -22,8 +23,9 @@ console.log(`Item catalog: ${catalog.size} items`);
 const cookbook = await loadCookbook(dirname(config.itemCatalogPath));
 const quiz = await loadQuiz(dirname(config.itemCatalogPath));
 console.log(`Quiz: ${quiz.length} questions`);
+const foodKingRewards = await loadRewards(dirname(config.itemCatalogPath));
 console.log(`Cookbook: ${cookbook.recipes.size} recipes, ${cookbook.ingredients.size} ingredients`);
 
-serve({ fetch: createApp({ sql, catalog, cookbook, quiz }).fetch, port: config.port }, (info) => {
+serve({ fetch: createApp({ sql, catalog, cookbook, quiz, foodKingRewards }).fetch, port: config.port }, (info) => {
   console.log(`Gourmet Street server listening on http://localhost:${info.port}`);
 });

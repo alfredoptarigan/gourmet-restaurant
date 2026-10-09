@@ -3,6 +3,7 @@ import { authRoutes } from './auth.ts';
 import { awardRoutes } from './awards.ts';
 import type { Catalog } from './catalog.ts';
 import type { Sql } from './db.ts';
+import { foodKingRoutes, type Reward } from './foodking.ts';
 import { gardenRoutes } from './garden.ts';
 import { ApiError, fail, ok } from './http.ts';
 import { kitchenRoutes, type Cookbook } from './kitchen.ts';
@@ -20,10 +21,13 @@ export type AppOptions = {
   catalog: Catalog;
   cookbook?: Cookbook;
   quiz?: readonly Question[];
+  foodKingRewards?: readonly Reward[];
+  /** One Food King visit in this many player-days. */
+  foodKingChance?: number;
   authRateLimit?: { limit: number; windowMs: number };
 };
 
-export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, quiz = [], authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
+export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, quiz = [], foodKingRewards = [], foodKingChance, authRateLimit = DEFAULT_AUTH_RATE_LIMIT }: AppOptions): Hono {
   const app = new Hono();
 
   app.onError((error, c) => {
@@ -50,6 +54,7 @@ export function createApp({ sql, catalog, cookbook = EMPTY_COOKBOOK, quiz = [], 
   app.route('/garden', gardenRoutes(sql, cookbook));
   app.route('/awards', awardRoutes(sql));
   app.route('/quiz', quizRoutes(sql, quiz));
+  app.route('/foodking', foodKingRoutes(sql, foodKingRewards, foodKingChance));
 
   return app;
 }
